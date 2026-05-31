@@ -733,29 +733,53 @@ class AutoDeliveryHandler:
     
     # ==================== 发货冷却检查 ====================
     
-    def can_auto_delivery(self, order_id: str) -> bool:
-        """检查是否可以进行自动发货（防重复发货）- 基于订单ID"""
+    async def can_auto_delivery(self, order_id: str) -> bool:
+        """检查是否可以进行自动发货（防重复发货）- 基于订单ID
+
+        使用 Redis 存储冷却状态，进程重启后不丢失。
+        Redis 不可用时退化为内存检查。
+        """
         if not order_id:
-            # 如果没有订单ID，则不进行冷却检查，允许发货
             return True
 
+        # 优先查 Redis
+        try:
+            from common.db.redis_client import get_redis_client
+            redis = await get_redis_client()
+            key = f"delivery_cooldown:{self.cookie_id}:{order_id}"
+            if await redis.exists(key):
+                logger.info(f"【{self.cookie_id}】订单 {order_id} 在冷却期内(Redis)，跳过自动发货")
+                return False
+            return True
+        except Exception:
+            # Redis 不可用,退化为内存检查
+            current_time = time.time()
+            last_delivery = self.last_delivery_time.get(order_id, 0)
+            if current_time - last_delivery < self.delivery_cooldown:
+                logger.info(f"【{self.cookie_id}】订单 {order_id} 在冷却期内，跳过自动发货")
+                return False
+            return True
+
+    async def mark_delivery_sent(self, order_id: str):
+        """标记订单已发货
+
+        同时写 Redis（持久化）和内存（降级兼容）。
+        """
         current_time = time.time()
-        last_delivery = self.last_delivery_time.get(order_id, 0)
-
-        if current_time - last_delivery < self.delivery_cooldown:
-            logger.info(f"【{self.cookie_id}】订单 {order_id} 在冷却期内，跳过自动发货")
-            return False
-
-        return True
-
-    def mark_delivery_sent(self, order_id: str):
-        """标记订单已发货"""
-        current_time = time.time()
-        # 记录发货时间（用于内存清理）
+        # 内存记录（降级用）
         self.delivery_sent_orders[order_id] = current_time
-        # 更新发货时间，用于冷却检查
         self.last_delivery_time[order_id] = current_time
-        logger.info(f"【{self.cookie_id}】订单 {order_id} 已标记为发货（冷却期已设置）")
+
+        # Redis 记录（持久化，进程重启不丢）
+        try:
+            from common.db.redis_client import get_redis_client
+            redis = await get_redis_client()
+            key = f"delivery_cooldown:{self.cookie_id}:{order_id}"
+            await redis.set(key, "1", ex=int(self.delivery_cooldown))
+        except Exception as e:
+            logger.debug(f"【{self.cookie_id}】Redis 标记发货失败(内存已记录): {e}")
+
+        logger.info(f"【{self.cookie_id}】订单 {order_id} 已标记为发货")
 
 
     # ==================== 统一发货处理 ====================
@@ -862,7 +886,7 @@ class AutoDeliveryHandler:
                 return
 
             # 第二重检查：基于时间的冷却机制
-            if not self.can_auto_delivery(order_id):
+            if not await self.can_auto_delivery(order_id):
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】订单 {order_id} 在冷却期内，跳过发货')
                 return
 
@@ -904,7 +928,7 @@ class AutoDeliveryHandler:
                     return
 
                 # 第四重检查：获取锁后再次检查冷却状态
-                if not self.can_auto_delivery(order_id):
+                if not await self.can_auto_delivery(order_id):
                     logger.info(f'[{msg_time}] 【{self.cookie_id}】订单 {order_id} 在获取锁后检查发现仍在冷却期，跳过发货')
                     return
 
@@ -1033,7 +1057,7 @@ class AutoDeliveryHandler:
                         logger.info(f'[{msg_time}] 【{self.cookie_id}】订单 {order_id} 已发货，无需重复处理')
                     elif delivery_contents:
                         # 标记已发货（防重复）- 基于订单ID
-                        self.mark_delivery_sent(order_id)
+                        await self.mark_delivery_sent(order_id)
 
                         # 标记锁为持有状态，并启动延迟释放任务
                         self._lock_hold_info[lock_key] = {
@@ -1610,7 +1634,7 @@ class AutoDeliveryHandler:
                                     logger.error(f"【{self.cookie_id}】更新订单状态失败: {self._safe_str(e)}")
                                 
                                 # 标记已发货，防止重复处理
-                                self.mark_delivery_sent(order_id)
+                                await self.mark_delivery_sent(order_id)
                                 
                                 # 直接返回None，不再发送卡券内容
                                 self._last_delivery_fail_reason = f"订单 {order_id} 已发货过，不再发送卡券"

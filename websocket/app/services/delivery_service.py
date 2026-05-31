@@ -5,15 +5,17 @@
 确保无论触发来源,发货前检查的判断标准完全一致。
 
 使用方式:
-    service = DeliveryPreCheck(account_id=cookie_id, session=session)
-    result = await service.pre_check(order_no=order_no, buyer_id=buyer_id, item_id=item_id)
-    if result.blocked:
+    service = DeliveryPreCheck(account_id=cookie_id)
+    result = await service.pre_check(PreCheckRequest(
+        account_id=cookie_id, order_no=order_no, buyer_id=buyer_id, item_id=item_id
+    ))
+    if not result.allowed:
         return  # 不允许发货
     # 继续执行发货...
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from loguru import logger
@@ -38,7 +40,6 @@ class PreCheckResult:
     action: str = "allow"  # allow | block | card_only
 
     # 详细信息(供日志和调试)
-    lock_acquired: bool = False
     rule_code: Optional[str] = None
     order_amount: Optional[str] = None
 
@@ -47,31 +48,25 @@ class DeliveryPreCheck:
     """统一的发货前检查服务
 
     检查项（按顺序执行,任一失败即终止）:
-    1. Redis 分布式锁（防并发重复发货）
-    2. 内存冷却检查（同一订单短时间内不重复发）
-    3. 订单状态检查（已取消/已发货则跳过）
-    4. 订单金额检查（金额≤0禁止发货）
-    5. 禁止发货规则引擎（xy_delivery_block_rules）
-    6. 卡券可用性检查（有没有匹配的可用卡券）
+    1. 订单金额检查（金额≤0禁止发货）
+    2. 禁止发货规则引擎（xy_delivery_block_rules）
+    3. 卡券可用性检查（预留,暂不执行）
+
+    注意:Redis 分布式锁由调用方在外层管理,不在此服务内获取/释放。
     """
 
     def __init__(self, account_id: str):
         self.account_id = account_id
 
     async def pre_check(self, request: PreCheckRequest) -> PreCheckResult:
-        """执行全部前置检查"""
+        """执行全部前置检查
+
+        注意:本方法不获取 Redis 分布式锁。锁应由调用方在整个发货流程
+        的外层管理(覆盖 pre_check + 执行发货 + 写日志的完整生命周期)。
+        """
         result = PreCheckResult()
 
-        # 1. Redis 分布式锁
-        if not await self._acquire_lock(request.order_no):
-            result.allowed = False
-            result.reason = "其他进程正在处理该订单"
-            result.action = "block"
-            return result
-
-        result.lock_acquired = True
-
-        # 2. 订单金额检查
+        # 1. 订单金额检查
         amount_ok, amount = await self._check_order_amount(request.order_no)
         result.order_amount = amount
         if not amount_ok:
@@ -80,7 +75,7 @@ class DeliveryPreCheck:
             result.action = "block"
             return result
 
-        # 3. 禁止发货规则引擎
+        # 2. 禁止发货规则引擎
         rule_result = await self._check_delivery_block_rules(
             account_id=request.account_id,
             order_no=request.order_no,
@@ -94,24 +89,12 @@ class DeliveryPreCheck:
             result.rule_code = rule_result.get("rule_code")
             return result
 
-        # 4. 卡券可用性检查（可选,调用方也会做）
+        # 3. 卡券可用性检查（可选,调用方也会做）
         # 暂不在 pre_check 里做,避免重复查询
 
         return result
 
     # ==================== 内部方法 ====================
-
-    async def _acquire_lock(self, order_no: str) -> bool:
-        """获取 Redis 分布式发货锁"""
-        try:
-            from common.db.redis_client import try_acquire_delivery_lock
-            lock_result = await try_acquire_delivery_lock(
-                order_no, expire=120, holder_info=self.account_id, wait_timeout=5
-            )
-            return lock_result.get("acquired", False)
-        except Exception as e:
-            logger.warning(f"[{self.account_id}] 获取发货锁失败(允许继续): {e}")
-            return True  # 锁服务不可用时降级为允许
 
     async def _check_order_amount(self, order_no: str) -> tuple[bool, str | None]:
         """检查订单金额是否>0"""
@@ -192,16 +175,21 @@ class DeliveryPreCheck:
                         except Exception:
                             pass
 
-                    # 规则命中(简化版:有已启用规则且未被排除即视为命中)
-                    # TODO: 根据 rule_code 执行具体检查逻辑(如 buyer_credit_zero 需要查买家信用)
-                    action = "card_only" if only_card else "block"
-                    return {
-                        "action": action,
-                        "reason_text": block_reason or "禁止发货",
-                        "rule_code": rule_code,
-                        "auto_close_enabled": bool(auto_close),
-                        "only_card_enabled": bool(only_card),
-                    }
+                    # TODO: 根据 rule_code 执行具体检查逻辑
+                    # 如 buyer_credit_zero 需要调 API 查买家信用分,当前为 stub
+                    # 在具体规则判定逻辑实现前,此处暂时跳过(不拦截)
+                    # 实现后取消下面的 continue,改为真正的判定
+                    continue  # STUB: 规则判定未实现,暂不拦截
+
+                    # --- 以下为规则命中后的返回(待实现后启用) ---
+                    # action = "card_only" if only_card else "block"
+                    # return {
+                    #     "action": action,
+                    #     "reason_text": block_reason or "禁止发货",
+                    #     "rule_code": rule_code,
+                    #     "auto_close_enabled": bool(auto_close),
+                    #     "only_card_enabled": bool(only_card),
+                    # }
 
             return {"action": "allow"}
         except Exception as e:
