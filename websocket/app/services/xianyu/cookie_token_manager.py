@@ -20,6 +20,9 @@ from loguru import logger
 from common.db.session import async_session_maker
 from common.utils.cookie_refresh import get_account_by_identity, update_account_cookies_in_db
 from common.utils.xianyu_utils import trans_cookies, generate_sign
+from common.services.account_ops import disable_account as _async_disable_account
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+import common.services.account_ops as _ops
 
 
 class CookieTokenManager:
@@ -384,8 +387,7 @@ class CookieTokenManager:
             log_id = None
             captcha_start_time = time.time()
             try:
-                from common.db.compat import db_manager
-                log_id = db_manager.add_risk_control_log(
+                log_id = await _ops.add_risk_control_log(
                     cookie_id=self.cookie_id,
                     event_type='slider_captcha',
                     event_description=f'触发场景: Token刷新, URL: {verification_url}',
@@ -418,8 +420,7 @@ class CookieTokenManager:
                     captcha_duration = time.time() - captcha_start_time
                     if log_id:
                         try:
-                            from common.db.compat import db_manager
-                            db_manager.update_risk_control_log(
+                            await _async_update_risk_log(
                                 log_id=log_id,
                                 processing_status='success',
                                 processing_result=f'滑块验证成功，耗时: {captcha_duration:.2f}秒'
@@ -454,8 +455,7 @@ class CookieTokenManager:
                         captcha_duration = time.time() - captcha_start_time
                         if log_id:
                             try:
-                                from common.db.compat import db_manager
-                                db_manager.update_risk_control_log(
+                                await _async_update_risk_log(
                                     log_id=log_id,
                                     processing_status='failed',
                                     processing_result=(
@@ -511,8 +511,7 @@ class CookieTokenManager:
                     captcha_duration = time.time() - captcha_start_time
                     if log_id:
                         try:
-                            from common.db.compat import db_manager
-                            db_manager.update_risk_control_log(
+                            await _async_update_risk_log(
                                 log_id=log_id,
                                 processing_status='failed',
                                 processing_result=f'滑块验证失败，耗时: {captcha_duration:.2f}秒'
@@ -528,15 +527,13 @@ class CookieTokenManager:
                 # 更新风控日志为异常状态
                 if log_id:
                     try:
-                        from common.db.compat import db_manager
-                        db_manager.update_risk_control_log(
+                        await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='error',
                             error_message='滑块验证模块未安装'
                         )
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 await self.send_token_refresh_notification(
                     f"滑块验证功能不可用，请安装Playwright",
                     "captcha_dependency_missing"
@@ -549,14 +546,13 @@ class CookieTokenManager:
                 captcha_duration = time.time() - captcha_start_time
                 if log_id:
                     try:
-                        from common.db.compat import db_manager
-                        db_manager.update_risk_control_log(
+                        await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='cancelled',
                             processing_result=f'任务被取消，耗时: {captcha_duration:.2f}秒'
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 raise
 
             except Exception as stealth_e:
@@ -566,16 +562,14 @@ class CookieTokenManager:
                 captcha_duration = time.time() - captcha_start_time
                 if log_id:
                     try:
-                        from common.db.compat import db_manager
-                        db_manager.update_risk_control_log(
+                        await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='error',
                             processing_result=f'滑块验证异常，耗时: {captcha_duration:.2f}秒',
                             error_message=self._safe_str(stealth_e)
                         )
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 return None
 
         except asyncio.CancelledError:
@@ -850,8 +844,7 @@ class CookieTokenManager:
                                 
                                 # 自动禁用账号
                                 try:
-                                    from common.db.compat import db_manager
-                                    db_manager.disable_account(self.cookie_id, reason="账号已掉线且未配置账号密码，自动禁用")
+                                    await _async_disable_account(self.cookie_id, reason="账号已掉线且未配置账号密码，自动禁用")
                                     logger.warning(f"【{self.cookie_id}】账号已自动禁用")
                                 except Exception as disable_e:
                                     logger.error(f"【{self.cookie_id}】自动禁用账号失败: {self._safe_str(disable_e)}")
@@ -951,13 +944,12 @@ class CookieTokenManager:
         ) -> None:
             """记录一条账号登录日志（写日志失败不影响主流程）。"""
             try:
-                from common.db.compat import db_manager
                 duration_ms = int((time.time() - start_ts) * 1000)
                 # 如果接口续期失败了，在 error_message 前拼接续期失败信息
                 final_error_message = error_message
                 if _api_renew_fail_msg and error_message:
                     final_error_message = f"{_api_renew_fail_msg}，{error_message}"
-                db_manager.add_account_login_log(
+                await _ops.add_account_login_log(
                     cookie_id=self.cookie_id,
                     login_status=login_status,
                     username=login_username,
@@ -971,7 +963,6 @@ class CookieTokenManager:
                 logger.warning(f"【{self.cookie_id}】写入账号登录日志失败: {self._safe_str(log_e)}")
 
         try:
-            from common.db.compat import db_manager
             
             # 检查密码登录冷却期
             current_time = time.time()
@@ -1141,9 +1132,8 @@ class CookieTokenManager:
                 finally:
                     try:
                         slider.close()
-                    except:
-                        pass
-            
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
             result = await asyncio.to_thread(_do_password_login)
             
             if result:
@@ -1245,8 +1235,7 @@ class CookieTokenManager:
                 # 直接使用原始错误文案作为禁用原因（不加前缀），与内层 _disable_account_on_timeout 保持一致
                 disable_reason = error_msg if error_msg else "账号密码错误"
                 try:
-                    from common.db.compat import db_manager
-                    db_manager.disable_account(self.cookie_id, reason=disable_reason)
+                    await _async_disable_account(self.cookie_id, reason=disable_reason)
                     logger.warning(f"【{self.cookie_id}】检测到账密错误，账号已自动禁用，原因: {disable_reason}")
                 except Exception as disable_e:
                     logger.error(f"【{self.cookie_id}】禁用账号失败: {self._safe_str(disable_e)}")
@@ -1329,9 +1318,8 @@ class CookieTokenManager:
                     try:
                         os.remove(test_image_path)
                         logger.info(f"【{self.cookie_id}】已清理测试图片")
-                    except:
-                        pass
-                        
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
         except Exception as e:
             logger.error(f"【{self.cookie_id}】图片上传API验证异常: {self._safe_str(e)}")
             result['image_api'] = True

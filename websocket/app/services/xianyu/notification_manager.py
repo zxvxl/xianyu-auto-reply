@@ -13,6 +13,8 @@ import asyncio
 import hashlib
 from loguru import logger
 
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
+import common.services.account_ops as _ops
 from common.utils.notification_utils import (
     parse_notification_config,
     send_dingtalk_notification,
@@ -54,17 +56,16 @@ class NotificationManager:
         """安全地将异常转换为字符串"""
         try:
             return str(e)
-        except:
+        except Exception:
             try:
                 return repr(e)
-            except:
+            except Exception:
                 return "未知错误"
 
     async def send_notification(self, send_user_name: str, send_user_id: str, 
                                send_message: str, item_id: str = None, chat_id: str = None):
         """发送消息通知"""
         try:
-            from common.db.compat import db_manager
 
             # 过滤系统默认消息
             system_messages = ['发来一条消息', '发来一条新消息']
@@ -74,7 +75,7 @@ class NotificationManager:
 
             # 检查消息过滤规则（跳过消息通知）
             try:
-                filter_keywords = db_manager.get_message_filter_keywords(self.cookie_id, 'skip_notify')
+                filter_keywords = await _ops.get_message_filter_keywords(self.cookie_id, 'skip_notify')
                 if filter_keywords:
                     for keyword in filter_keywords:
                         if keyword and keyword in send_message:
@@ -109,7 +110,7 @@ class NotificationManager:
             logger.info(f"📱 开始发送消息通知 - 账号: {self.cookie_id}, 买家: {send_user_name}")
 
             # 获取账号的通知配置
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
             if not notifications:
                 logger.warning(f"📱 账号 {self.cookie_id} 未配置消息通知，跳过通知发送")
                 return
@@ -133,10 +134,9 @@ class NotificationManager:
                                                   item_id: str, error_message: str, chat_id: str = None):
         """发送自动发货失败通知"""
         try:
-            from common.db.compat import db_manager
 
             # 获取账号的通知配置
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
             if not notifications:
                 logger.warning("未配置消息通知，跳过自动发货通知")
                 return
@@ -198,8 +198,7 @@ class NotificationManager:
                 logger.warning(f"Token刷新通知在冷却期内，跳过发送 (还需等待 {time_desc})")
                 return
 
-            from common.db.compat import db_manager
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
 
             if not notifications:
                 logger.warning("未配置消息通知，跳过Token刷新通知")

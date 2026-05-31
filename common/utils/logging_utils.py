@@ -19,6 +19,8 @@ from typing import List, Optional
 
 from loguru import logger
 
+from common.utils.log_context import context_patcher
+
 # 默认日志保留天数
 DEFAULT_LOG_RETENTION_DAYS = 7
 
@@ -79,6 +81,9 @@ def setup_logging(
 
     # 移除默认的 stderr handler
     logger.remove()
+
+    # 应用结构化日志上下文（将 account_id/chat_id 自动注入 message 前缀）
+    logger.configure(patcher=context_patcher)
 
     # 添加控制台输出
     logger.add(

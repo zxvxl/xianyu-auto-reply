@@ -12,6 +12,12 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from common.services.order_query import get_order_by_id as _async_get_order
+from common.services.account_ops import disable_account as _async_disable_account
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+from common.services.account_ops import get_account_details as _async_get_account_details
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
+import common.services.account_ops as _ops
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -415,7 +421,6 @@ async def deliver_order(request: DeliverOrderRequest):
     try:
         from app.services.xianyu.cookie_manager import get_manager
         from loguru import logger
-        from common.db.compat import db_manager
         from common.db.session import async_session_maker
         from sqlalchemy import select
         from common.models.card import Card
@@ -423,7 +428,7 @@ async def deliver_order(request: DeliverOrderRequest):
         logger.info(f"【内部API】收到订单发货请求: order_no={request.order_no}, 发货方式={request.delivery_method}")
         
         # 根据订单号获取账号ID
-        order_info = db_manager.get_order_by_id(request.order_no)
+        order_info = await _async_get_order(request.order_no)
         
         if not order_info:
             raise HTTPException(
@@ -578,7 +583,7 @@ async def deliver_order(request: DeliverOrderRequest):
                     logger.warning(f"【内部API】确认发货失败: {error_msg}")
                     # 检查"发货成功再发卡券"开关，如果开启则不发送卡券
                     try:
-                        if db_manager.get_confirm_before_send(account_id):
+                        if await _async_get_confirm_before_send(account_id):
                             logger.warning(f"【内部API】发货成功再发卡券开关已开启，确认发货失败，不发送卡券: {request.order_no}")
                             return {
                                 "success": False,
@@ -618,7 +623,7 @@ async def deliver_order(request: DeliverOrderRequest):
                     logger.warning(f"【内部API】免拼发货失败: {error_msg}")
                     # 检查"发货成功再发卡券"开关，如果开启则不发送卡券
                     try:
-                        if db_manager.get_confirm_before_send(account_id):
+                        if await _async_get_confirm_before_send(account_id):
                             logger.warning(f"【内部API】发货成功再发卡券开关已开启，免拼发货失败，不发送卡券: {request.order_no}")
                             return {
                                 "success": False,
@@ -766,7 +771,7 @@ async def deliver_order(request: DeliverOrderRequest):
         quantity_degraded_for_disabled_switch = False
         if quantity > 1:
             try:
-                multi_quantity_enabled = db_manager.get_item_multi_quantity_delivery_status(account_id, request.item_id)
+                multi_quantity_enabled = await _ops.get_item_multi_quantity_delivery_status(account_id, request.item_id)
             except Exception as switch_err:
                 # 开关查询异常时按"未启用"处理（保守策略）
                 logger.warning(f"【内部API】查询商品多数量发货开关异常，按未启用处理: {switch_err}")
@@ -844,10 +849,10 @@ async def deliver_order(request: DeliverOrderRequest):
             'seller_name': '',
         }
         try:
-            _item_info = db_manager.get_item_info(account_id, request.item_id)
+            _item_info = await _async_get_item_info(account_id, request.item_id)
             if _item_info:
                 _order_context['item_title'] = _item_info.get('title') or ''
-            _seller_info = db_manager.get_cookie_by_id(account_id)
+            _seller_info = await _async_get_account_details(account_id)
             if _seller_info:
                 _order_context['seller_name'] = _seller_info.get('remark') or account_id or ''
         except Exception:
@@ -872,7 +877,7 @@ async def deliver_order(request: DeliverOrderRequest):
             if card.type == 'text':
                 content = card.text_content
             elif card.type == 'data':
-                content = db_manager.consume_batch_data(request.card_id)
+                content = await _ops.consume_batch_data(request.card_id)
                 if not content:
                     if not raw_contents:
                         logger.error(f"【内部API】批量数据已用完: card_id={request.card_id}")
@@ -993,7 +998,7 @@ async def deliver_order(request: DeliverOrderRequest):
         # ============ 累计发货次数（按实际发出的张数） ============
         for _ in range(actual_count):
             try:
-                db_manager.increment_delivery_count(request.card_id)
+                await _ops.increment_delivery_count(request.card_id)
             except Exception as cnt_err:
                 logger.warning(f"【内部API】累加卡券发货次数失败: {cnt_err}")
 
@@ -1336,7 +1341,6 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
     import asyncio
     import time as _time
     from loguru import logger
-    from common.db.compat import db_manager
     
     logger.info(f"【内部API】开始独立执行密码登录: account_id={account_id}")
     
@@ -1359,7 +1363,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             final_error_message = error_message
             if _api_renew_fail_msg and error_message:
                 final_error_message = f"{_api_renew_fail_msg}，{error_message}"
-            db_manager.add_account_login_log(
+            await _ops.add_account_login_log(
                 cookie_id=account_id,
                 login_status=login_status,
                 username=login_username,
@@ -1374,7 +1378,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
 
     try:
         # 从数据库获取账号信息
-        account_info = await asyncio.to_thread(db_manager.get_cookie_details, account_id)
+        account_info = await _ops.get_account_details(account_id)
         
         if not account_info:
             logger.error(f"【内部API】无法获取账号信息: {account_id}")
@@ -1400,7 +1404,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
 
                 # 不管续期是否成功，有Cookie更新就先写库
                 if renew_result.updated_cookie_names:
-                    db_manager.update_cookie_account_info(
+                    await _ops.update_cookie_account_info(
                         account_id,
                         cookie_value=renew_result.new_cookies_str
                     )
@@ -1447,7 +1451,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             logger.warning(f"【内部API】账号 {account_id} 未配置用户名或密码")
             # 自动禁用账号
             try:
-                db_manager.disable_account(account_id, reason=f"{trigger_reason}且未配置密码，自动禁用")
+                await _async_disable_account(account_id, reason=f"{trigger_reason}且未配置密码，自动禁用")
                 logger.warning(f"【内部API】账号 {account_id} 已自动禁用")
             except Exception as disable_e:
                 logger.error(f"【内部API】自动禁用账号失败: {disable_e}")
@@ -1492,7 +1496,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             # 记录密码登录获取到的新cookies
             logger.info(f"【{account_id}】[密码登录获取的新Cookies] {new_cookies_str}")
             
-            success = db_manager.update_cookie_account_info(
+            success = await _ops.update_cookie_account_info(
                 account_id,
                 cookie_value=new_cookies_str
             )
@@ -1589,7 +1593,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
         if is_bad_credentials:
             disable_reason = error_msg if error_msg else "账号密码错误"
             try:
-                db_manager.disable_account(account_id, reason=disable_reason)
+                await _async_disable_account(account_id, reason=disable_reason)
                 logger.warning(f"【内部API】检测到账密错误，账号 {account_id} 已自动禁用，原因: {disable_reason}")
             except Exception as disable_e:
                 logger.error(f"【内部API】禁用账号失败: {disable_e}")

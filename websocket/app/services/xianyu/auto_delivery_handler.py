@@ -22,6 +22,10 @@ from app.services.xianyu.delivery_utils import (
     recursive_replace_params
 )
 from app.services.xianyu.yifan_api_handler import YifanApiHandler
+from common.services.order_query import get_order_by_id as _async_get_order
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+from common.services.account_ops import get_account_details as _async_get_account_details
+import common.services.account_ops as _ops
 
 
 class AutoDeliveryHandler:
@@ -218,8 +222,8 @@ class AutoDeliveryHandler:
                 if latest_ws is not None and latest_ws != current_ws:
                     current_ws = latest_ws
                     logger.info(f"【{self.cookie_id}】检测到新的WebSocket连接，使用新连接重试")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
         return result or {"success": False, "mode": "text", "content": content, "error_message": "重试耗尽仍失败"}
     
     async def _send_image_msg_with_retry(self, websocket, chat_id: str, send_user_id: str,
@@ -257,8 +261,8 @@ class AutoDeliveryHandler:
                 if latest_ws is not None and latest_ws != current_ws:
                     current_ws = latest_ws
                     logger.info(f"【{self.cookie_id}】检测到新的WebSocket连接，使用新连接重试")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
         return result or {"success": False, "mode": "image", "image_url": image_url, "error_message": "重试耗尽仍失败"}
     
     async def _send_text_with_separator(self, websocket, chat_id: str, send_user_id: str, text: str, msg_time: str = "", user_url: str = "", send_results: list = None) -> bool:
@@ -733,29 +737,53 @@ class AutoDeliveryHandler:
     
     # ==================== 发货冷却检查 ====================
     
-    def can_auto_delivery(self, order_id: str) -> bool:
-        """检查是否可以进行自动发货（防重复发货）- 基于订单ID"""
+    async def can_auto_delivery(self, order_id: str) -> bool:
+        """检查是否可以进行自动发货（防重复发货）- 基于订单ID
+
+        使用 Redis 存储冷却状态，进程重启后不丢失。
+        Redis 不可用时退化为内存检查。
+        """
         if not order_id:
-            # 如果没有订单ID，则不进行冷却检查，允许发货
             return True
 
+        # 优先查 Redis
+        try:
+            from common.db.redis_client import get_redis_client
+            redis = await get_redis_client()
+            key = f"delivery_cooldown:{self.cookie_id}:{order_id}"
+            if await redis.exists(key):
+                logger.info(f"【{self.cookie_id}】订单 {order_id} 在冷却期内(Redis)，跳过自动发货")
+                return False
+            return True
+        except Exception:
+            # Redis 不可用,退化为内存检查
+            current_time = time.time()
+            last_delivery = self.last_delivery_time.get(order_id, 0)
+            if current_time - last_delivery < self.delivery_cooldown:
+                logger.info(f"【{self.cookie_id}】订单 {order_id} 在冷却期内，跳过自动发货")
+                return False
+            return True
+
+    async def mark_delivery_sent(self, order_id: str):
+        """标记订单已发货
+
+        同时写 Redis（持久化）和内存（降级兼容）。
+        """
         current_time = time.time()
-        last_delivery = self.last_delivery_time.get(order_id, 0)
-
-        if current_time - last_delivery < self.delivery_cooldown:
-            logger.info(f"【{self.cookie_id}】订单 {order_id} 在冷却期内，跳过自动发货")
-            return False
-
-        return True
-
-    def mark_delivery_sent(self, order_id: str):
-        """标记订单已发货"""
-        current_time = time.time()
-        # 记录发货时间（用于内存清理）
+        # 内存记录（降级用）
         self.delivery_sent_orders[order_id] = current_time
-        # 更新发货时间，用于冷却检查
         self.last_delivery_time[order_id] = current_time
-        logger.info(f"【{self.cookie_id}】订单 {order_id} 已标记为发货（冷却期已设置）")
+
+        # Redis 记录（持久化，进程重启不丢）
+        try:
+            from common.db.redis_client import get_redis_client
+            redis = await get_redis_client()
+            key = f"delivery_cooldown:{self.cookie_id}:{order_id}"
+            await redis.set(key, "1", ex=int(self.delivery_cooldown))
+        except Exception as e:
+            logger.debug(f"【{self.cookie_id}】Redis 标记发货失败(内存已记录): {e}")
+
+        logger.info(f"【{self.cookie_id}】订单 {order_id} 已标记为发货")
 
 
     # ==================== 统一发货处理 ====================
@@ -778,8 +806,7 @@ class AutoDeliveryHandler:
             # 检查商品是否属于当前cookies
             if item_id and item_id != "未知商品":
                 try:
-                    from common.db.compat import db_manager
-                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                    item_info = await _async_get_item_info(self.cookie_id, item_id)
                     if not item_info:
                         logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 不属于当前账号，跳过自动发货')
                         return
@@ -805,8 +832,7 @@ class AutoDeliveryHandler:
 
             # 检查订单金额，金额为0禁止发货
             try:
-                from common.db.compat import db_manager
-                order_check = db_manager.get_order_by_id(order_id)
+                order_check = await _async_get_order(order_id)
                 if order_check:
                     order_amount = order_check.get('amount')
                     if order_amount is not None:
@@ -862,7 +888,7 @@ class AutoDeliveryHandler:
                 return
 
             # 第二重检查：基于时间的冷却机制
-            if not self.can_auto_delivery(order_id):
+            if not await self.can_auto_delivery(order_id):
                 logger.info(f'[{msg_time}] 【{self.cookie_id}】订单 {order_id} 在冷却期内，跳过发货')
                 return
 
@@ -890,8 +916,7 @@ class AutoDeliveryHandler:
                 # 获取锁后检查数据库订单状态，如果已发货则跳过
                 if redis_lock_acquired and order_id:
                     try:
-                        from common.db.compat import db_manager
-                        existing_order = db_manager.get_order_by_id(order_id)
+                        existing_order = await _async_get_order(order_id)
                         if existing_order and existing_order.get('status') == 'shipped':
                             logger.info(f'[{msg_time}] 【{self.cookie_id}】获取锁后检查发现订单 {order_id} 已发货，跳过处理')
                             return
@@ -904,7 +929,7 @@ class AutoDeliveryHandler:
                     return
 
                 # 第四重检查：获取锁后再次检查冷却状态
-                if not self.can_auto_delivery(order_id):
+                if not await self.can_auto_delivery(order_id):
                     logger.info(f'[{msg_time}] 【{self.cookie_id}】订单 {order_id} 在获取锁后检查发现仍在冷却期，跳过发货')
                     return
 
@@ -921,11 +946,10 @@ class AutoDeliveryHandler:
                     logger.info(f"【{self.cookie_id}】准备自动发货: item_id={item_id}, item_title={item_title}")
 
                     # 检查是否需要多数量发货
-                    from common.db.compat import db_manager
                     quantity_to_send = 1  # 默认发送1个
 
                     # 检查商品是否开启了多数量发货
-                    multi_quantity_delivery = db_manager.get_item_multi_quantity_delivery_status(self.cookie_id, item_id)
+                    multi_quantity_delivery = await _ops.get_item_multi_quantity_delivery_status(self.cookie_id, item_id)
 
                     if multi_quantity_delivery and order_id:
                         logger.info(f"商品 {item_id} 开启了多数量发货，获取订单详情...")
@@ -1015,8 +1039,7 @@ class AutoDeliveryHandler:
                                     break
                             elif delivery_content is None and i == 0:
                                 # 第一次调用返回None，可能是订单已发货，检查订单状态
-                                from common.db.compat import db_manager
-                                existing_order = db_manager.get_order_by_id(order_id)
+                                existing_order = await _async_get_order(order_id)
                                 if existing_order and existing_order.get('status') == 'shipped':
                                     logger.info(f"【{self.cookie_id}】订单 {order_id} 已发货，跳过发送卡券")
                                     order_already_shipped = True
@@ -1033,7 +1056,7 @@ class AutoDeliveryHandler:
                         logger.info(f'[{msg_time}] 【{self.cookie_id}】订单 {order_id} 已发货，无需重复处理')
                     elif delivery_contents:
                         # 标记已发货（防重复）- 基于订单ID
-                        self.mark_delivery_sent(order_id)
+                        await self.mark_delivery_sent(order_id)
 
                         # 标记锁为持有状态，并启动延迟释放任务
                         self._lock_hold_info[lock_key] = {
@@ -1342,10 +1365,9 @@ class AutoDeliveryHandler:
             logger.warning(f"【{self.cookie_id}】开始确认发货，订单ID: {order_id}")
 
             from common.db.session import async_session_maker
-            from common.db.compat import db_manager
             
             # 获取 account_pk
-            account_pk = await db_manager.get_account_pk_by_cookie_id(self.cookie_id)
+            account_pk = await _ops.get_account_pk_by_cookie_id(self.cookie_id)
             if not account_pk:
                 logger.error(f"【{self.cookie_id}】未找到账号信息")
                 return {"error": "未找到账号信息", "order_id": order_id}
@@ -1377,10 +1399,9 @@ class AutoDeliveryHandler:
             logger.warning(f"【{self.cookie_id}】开始免拼发货，订单ID: {order_id}")
 
             from common.db.session import async_session_maker
-            from common.db.compat import db_manager
             
             # 获取 account_pk
-            account_pk = await db_manager.get_account_pk_by_cookie_id(self.cookie_id)
+            account_pk = await _ops.get_account_pk_by_cookie_id(self.cookie_id)
             if not account_pk:
                 logger.error(f"【{self.cookie_id}】未找到账号信息")
                 return {"error": "未找到账号信息", "order_id": order_id}
@@ -1418,7 +1439,6 @@ class AutoDeliveryHandler:
                 发送给买家作为"补偿"。该参数为 True 时，"发货成功再发卡券"开关会被忽略。
         """
         try:
-            from common.db.compat import db_manager
 
             logger.info(f"开始自动发货检查: 商品ID={item_id}")
 
@@ -1428,7 +1448,7 @@ class AutoDeliveryHandler:
                 return None
 
             # 检查商品是否为多规格商品
-            is_multi_spec = db_manager.get_item_multi_spec_status(self.cookie_id, item_id)
+            is_multi_spec = await _ops.get_item_multi_spec_status(self.cookie_id, item_id)
             logger.info(f"商品 {item_id} 多规格状态: {is_multi_spec}")
             
             spec_name = None
@@ -1453,7 +1473,7 @@ class AutoDeliveryHandler:
 
             # 根据商品ID获取卡券（含来源信息：own/dock_l1/dock_l2）
             logger.info(f"根据商品ID获取卡券: {item_id}")
-            cards = db_manager.get_cards_by_item_id(item_id, spec_name, spec_value)
+            cards = await _ops.get_cards_by_item_id(item_id, spec_name, spec_value)
             
             if not cards:
                 self._last_delivery_fail_reason = f"商品 {item_id} 未配置卡券，无法自动发货"
@@ -1610,7 +1630,7 @@ class AutoDeliveryHandler:
                                     logger.error(f"【{self.cookie_id}】更新订单状态失败: {self._safe_str(e)}")
                                 
                                 # 标记已发货，防止重复处理
-                                self.mark_delivery_sent(order_id)
+                                await self.mark_delivery_sent(order_id)
                                 
                                 # 直接返回None，不再发送卡券内容
                                 self._last_delivery_fail_reason = f"订单 {order_id} 已发货过，不再发送卡券"
@@ -1631,14 +1651,14 @@ class AutoDeliveryHandler:
                 # 保存订单基本信息到数据库（如果还没有详细信息）
                 try:
                     # 检查cookie_id是否在cookies表中存在
-                    cookie_info = db_manager.get_cookie_by_id(self.cookie_id)
+                    cookie_info = await _async_get_account_details(self.cookie_id)
                     if not cookie_info:
                         logger.warning(f"Cookie ID {self.cookie_id} 不存在于cookies表中，丢弃订单 {order_id}")
                     else:
-                        existing_order = db_manager.get_order_by_id(order_id)
+                        existing_order = await _async_get_order(order_id)
                         if not existing_order:
                             # 插入基本订单信息
-                            success = db_manager.insert_or_update_order(
+                            success = await _ops.insert_or_update_order(
                                 order_id=order_id,
                                 item_id=item_id,
                                 buyer_id=send_user_id,
@@ -1685,7 +1705,7 @@ class AutoDeliveryHandler:
 
                 elif rule['card_type'] == 'data':
                     # 批量数据类型：获取并消费第一条数据
-                    text_content = db_manager.consume_batch_data(rule['card_id'])
+                    text_content = await _ops.consume_batch_data(rule['card_id'])
 
                 elif rule['card_type'] == 'image':
                     # 图片类型：文字内容为空，只发送图片
@@ -1701,15 +1721,15 @@ class AutoDeliveryHandler:
                 real_item_title = item_title or ''
                 if not real_item_title or real_item_title == '待获取商品信息':
                     try:
-                        item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                        item_info = await _async_get_item_info(self.cookie_id, item_id)
                         if item_info:
                             real_item_title = item_info.get('title') or item_info.get('item_title') or ''
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 # 尝试获取卖家昵称（优先使用账号备注）
                 seller_name = ''
                 try:
-                    seller_info = db_manager.get_cookie_by_id(self.cookie_id)
+                    seller_info = await _async_get_account_details(self.cookie_id)
                     if seller_info:
                         seller_name = seller_info.get('remark') or self.cookie_id or ''
                 except Exception:
@@ -1763,7 +1783,7 @@ class AutoDeliveryHandler:
 
                 if delivery_content:
                     # 增加发货次数统计
-                    db_manager.increment_delivery_count(rule['card_id'])
+                    await _ops.increment_delivery_count(rule['card_id'])
                     logger.info(f"自动发货成功: 卡券ID={rule['card_id']}, 内容长度={len(delivery_content)}")
                     
                     # 如果是对接卡券，创建代理订单记录
@@ -1818,7 +1838,7 @@ class AutoDeliveryHandler:
         from common.models.dock_record import DockRecord
         from common.models.card import Card as CardModel
         from common.models.system_setting import SystemSetting
-        from common.services.settlement_service import SettlementService
+        from app.services.agent_settlement_service import SettlementService
         from decimal import Decimal, InvalidOperation
         from sqlalchemy import select
         
@@ -1834,8 +1854,7 @@ class AutoDeliveryHandler:
                 # 获取订单售价
                 sale_price_str = '0.00'
                 try:
-                    from common.db.compat import db_manager
-                    order_info = db_manager.get_order_by_id(order_id)
+                    order_info = await _async_get_order(order_id)
                     if order_info and order_info.get('amount'):
                         sale_price_str = str(order_info['amount'])
                 except Exception as e:
@@ -1864,9 +1883,8 @@ class AutoDeliveryHandler:
                     fee_type_stmt = select(SystemSetting.value).where(SystemSetting.key == 'distribution.fee_type')
                     fee_type_result = await session.execute(fee_type_stmt)
                     fee_type = fee_type_result.scalar() or 'fixed'
-                except Exception:
-                    pass
-                
+                except Exception as e:
+                    logger.debug(f"异常(已跳过): {e}")
                 fee_stmt = select(SystemSetting.value).where(SystemSetting.key == 'distribution.fee_rate')
                 fee_result = await session.execute(fee_stmt)
                 fee_val = fee_result.scalar()
@@ -1893,8 +1911,7 @@ class AutoDeliveryHandler:
                 dock_level = dock_record.level
                 
                 # 获取当前用户ID（分销商/代理）
-                from common.db.compat import db_manager
-                cookie_info = db_manager.get_cookie_by_id(self.cookie_id)
+                cookie_info = await _async_get_account_details(self.cookie_id)
                 dealer_user_id = cookie_info.get('user_id') if cookie_info else 0
                 
                 logger.info(
@@ -2043,7 +2060,7 @@ class AutoDeliveryHandler:
         from common.models.dock_record import DockRecord
         from common.models.card import Card as CardModel
         from common.models.system_setting import SystemSetting
-        from common.services.settlement_service import SettlementService
+        from app.services.agent_settlement_service import SettlementService
         from decimal import Decimal, InvalidOperation
         from sqlalchemy import select
         
@@ -2078,8 +2095,7 @@ class AutoDeliveryHandler:
             # 获取订单售价（需要先获取，百分比手续费依赖售价）
             sale_price = '0.00'
             try:
-                from common.db.compat import db_manager
-                order_info = db_manager.get_order_by_id(order_id)
+                order_info = await _async_get_order(order_id)
                 if order_info and order_info.get('amount'):
                     sale_price = str(order_info['amount'])
             except Exception as e:
@@ -2143,8 +2159,7 @@ class AutoDeliveryHandler:
                 profit = '0.00'
             
             # 获取当前用户ID（分销商）
-            from common.db.compat import db_manager
-            cookie_info = db_manager.get_cookie_by_id(self.cookie_id)
+            cookie_info = await _async_get_account_details(self.cookie_id)
             user_id = cookie_info.get('user_id') if cookie_info else 0
             
             # 截断发货内容（避免过长）
@@ -2296,7 +2311,7 @@ class AutoDeliveryHandler:
                         content = result.get('data') or result.get('content') or result.get('card') or str(result)
                     else:
                         content = str(result)
-                except:
+                except Exception:
                     content = response_text
 
                 logger.info(f"API调用成功，返回内容长度: {len(content)}")
@@ -2361,9 +2376,8 @@ class AutoDeliveryHandler:
             # 如果有订单ID，获取订单信息
             if order_id:
                 try:
-                    from common.db.compat import db_manager
                     # 尝试从数据库获取订单信息
-                    order_info = db_manager.get_order_by_id(order_id)
+                    order_info = await _async_get_order(order_id)
                     if not order_info:
                         # 如果数据库中没有，尝试通过API获取
                         order_detail = await self.fetch_order_detail_info(order_id, item_id, buyer_id)
@@ -2380,8 +2394,7 @@ class AutoDeliveryHandler:
             # 如果有商品ID，获取商品信息
             if item_id:
                 try:
-                    from common.db.compat import db_manager
-                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                    item_info = await _async_get_item_info(self.cookie_id, item_id)
                     if item_info:
                         logger.warning(f"从数据库获取到商品信息: {item_id}")
                     else:

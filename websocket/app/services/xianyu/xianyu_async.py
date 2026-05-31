@@ -21,8 +21,12 @@ from loguru import logger
 from common.utils.xianyu_utils import (
     trans_cookies, generate_device_id, generate_mid
 )
+from common.services.order_query import get_order_by_id as _async_get_order
 from app.services.xianyu.connection_manager import ConnectionManager, ConnectionState
 from app.services.xianyu.token_manager import TokenManager
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
+import common.services.account_ops as _ops
 
 # 配置常量
 WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', 'wss://wss-goofish.dingtalk.com/')
@@ -88,8 +92,7 @@ class XianyuAsync:
         if 'unb' not in self.cookies:
             # 禁用账号
             try:
-                from common.db.compat import db_manager
-                db_manager.disable_account(cookie_id, reason="Cookie缺少必需的unb字段")
+                await _ops.disable_account(cookie_id, reason="Cookie缺少必需的unb字段")
                 logger.warning(f"【{cookie_id}】Cookie缺少unb字段，账号已自动禁用")
             except Exception as e:
                 logger.error(f"【{cookie_id}】禁用账号失败: {e}")
@@ -225,8 +228,7 @@ class XianyuAsync:
     def _load_proxy_config(self) -> dict:
         """从数据库加载代理配置"""
         try:
-            from common.db.compat import db_manager
-            proxy_config = db_manager.get_cookie_proxy_config(self.cookie_id) or self._default_proxy_config()
+            proxy_config = await _ops.get_cookie_proxy_config(self.cookie_id) or self._default_proxy_config()
             if not isinstance(proxy_config, dict):
                 proxy_config = self._default_proxy_config()
             proxy_type = proxy_config.get('proxy_type', 'none')
@@ -557,10 +559,10 @@ class XianyuAsync:
         """安全地将对象转换为字符串"""
         try:
             return str(obj)
-        except:
+        except Exception:
             try:
                 return repr(obj)
-            except:
+            except Exception:
                 return "未知对象"
     
     async def init(self, ws):
@@ -674,12 +676,10 @@ class XianyuAsync:
         async with self.message_semaphore:
             self.active_message_tasks += 1
             try:
-                await self.handle_message(message_data, websocket)
+                with logger.contextualize(account_id=self.cookie_id):
+                    await self.handle_message(message_data, websocket)
             finally:
                 self.active_message_tasks -= 1
-                # 定期记录活跃任务数（每100个任务记录一次）
-                if self.active_message_tasks % 100 == 0 and self.active_message_tasks > 0:
-                    logger.info(f"【{self.cookie_id}】当前活跃消息处理任务数: {self.active_message_tasks}")
     
     async def handle_message(self, message_data: dict, websocket):
         """
@@ -721,8 +721,7 @@ class XianyuAsync:
                     myid = getattr(self, 'myid', self.cookie_id)
                     if send_user_id == myid and send_message:
                         try:
-                            from common.db.compat import db_manager
-                            redelivery_keyword = db_manager.get_user_setting_by_cookie_id(
+                            redelivery_keyword = await _ops.get_user_setting_by_cookie_id(
                                 self.cookie_id, 'redelivery_trigger_keyword'
                             )
                             if redelivery_keyword:
@@ -735,13 +734,13 @@ class XianyuAsync:
                                         logger.info(f"【{self.cookie_id}】✅ 检测到重发货触发: 关键词='{redelivery_keyword}', 订单号={order_no}")
                                         
                                         # 从数据库查询订单信息
-                                        order_info = db_manager.get_order_by_id(order_no)
+                                        order_info = await _async_get_order(order_no)
                                         if not order_info:
                                             # 订单不在数据库中，先插入基本记录
                                             logger.info(f"【{self.cookie_id}】重发货触发: 订单 {order_no} 不在数据库中，创建基本记录")
                                             try:
                                                 current_chat_id = parsed_message.get('chat_id', '')
-                                                db_manager.insert_or_update_order(
+                                                await _ops.insert_or_update_order(
                                                     order_id=order_no,
                                                     item_id=item_id,
                                                     buyer_id='',
@@ -760,7 +759,7 @@ class XianyuAsync:
                                             logger.warning(f"【{self.cookie_id}】重发货触发: API刷新订单 {order_no} 详情失败: {fetch_e}")
                                         
                                         # 重新获取最新的订单信息
-                                        order_info = db_manager.get_order_by_id(order_no)
+                                        order_info = await _async_get_order(order_no)
                                         logger.info(f"【{self.cookie_id}】重发货触发: 订单 {order_no} get_order_by_id 完整返回结果: {order_info}")
                                         
                                         if order_info:
@@ -776,7 +775,7 @@ class XianyuAsync:
                                                 # 命中禁止发货会错误关闭别人的订单。
                                                 if order_item_id and order_item_id != "未知商品":
                                                     try:
-                                                        item_info = db_manager.get_item_info(self.cookie_id, order_item_id)
+                                                        item_info = await _async_get_item_info(self.cookie_id, order_item_id)
                                                         if not item_info:
                                                             logger.warning(
                                                                 f"【{self.cookie_id}】重发货触发：商品 {order_item_id} 不属于当前账号，"
@@ -1060,8 +1059,7 @@ class XianyuAsync:
     def is_auto_confirm_enabled(self) -> bool:
         """检查是否启用自动确认发货"""
         try:
-            from common.db.compat import db_manager
-            return db_manager.get_auto_confirm(self.cookie_id)
+            return await _ops.get_auto_confirm(self.cookie_id)
         except Exception as e:
             logger.error(f"【{self.cookie_id}】获取自动确认设置失败: {e}")
             return False
@@ -1069,8 +1067,7 @@ class XianyuAsync:
     def is_confirm_before_send_enabled(self) -> bool:
         """检查是否开启发货成功再发卡券开关"""
         try:
-            from common.db.compat import db_manager
-            return db_manager.get_confirm_before_send(self.cookie_id)
+            return await _async_get_confirm_before_send(self.cookie_id)
         except Exception as e:
             logger.error(f"【{self.cookie_id}】获取发货成功再发卡券设置失败: {e}")
             return False
@@ -1108,9 +1105,8 @@ class XianyuAsync:
                                     if order_match:
                                         order_id = order_match.group(1)
                                         
-                        except Exception:
-                            pass
-            
+                        except Exception as e:
+                            logger.debug(f"异常(已跳过): {e}")
             # 方法2: 在整个消息中搜索订单ID模式（参照旧框架）
             if not order_id:
                 message_str = str(message)
@@ -1185,9 +1181,8 @@ class XianyuAsync:
                     chat_id_raw = message.get("2", "")
                     if chat_id_raw:
                         chat_id = str(chat_id_raw).split('@')[0] if '@' in str(chat_id_raw) else str(chat_id_raw)
-            except Exception:
-                pass
-            
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
             # 根据消息类型确定订单状态
             if send_message == '[我已拍下，待付款]':
                 order_status = "pending_payment"
@@ -1316,8 +1311,7 @@ class XianyuAsync:
                 # 更新订单小刀状态
                 if order_id:
                     try:
-                        from common.db.compat import db_manager
-                        db_manager.update_order_bargain_status(order_id, True)
+                        await _ops.update_order_bargain_status(order_id, True)
                         logger.info(f"【{self.cookie_id}】订单 {order_id} 检测到小刀，已更新小刀状态")
                     except Exception as e:
                         logger.error(f"【{self.cookie_id}】更新订单小刀状态失败: {e}")
@@ -1334,8 +1328,7 @@ class XianyuAsync:
                             # 内部第一件事就是 item 归属检查，这里我们提前执行同样的检查。
                             if item_id and item_id != "未知商品":
                                 try:
-                                    from common.db.compat import db_manager
-                                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                                    item_info = await _async_get_item_info(self.cookie_id, item_id)
                                     if not item_info:
                                         logger.warning(
                                             f"【{self.cookie_id}】小刀卡片：商品 {item_id} 不属于当前账号，"
@@ -1610,8 +1603,7 @@ class XianyuAsync:
                             logger.info(f"[{msg_time}] 【{self.cookie_id}】确认收货图片上传成功，CDN URL: {cdn_url}")
                             # 上传成功后更新数据库中的图片URL
                             try:
-                                from common.db.compat import db_manager
-                                db_manager.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
+                                await _ops.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
                                 logger.info(f"[{msg_time}] 【{self.cookie_id}】已更新确认收货图片URL到数据库")
                             except Exception as e:
                                 logger.warning(f"[{msg_time}] 【{self.cookie_id}】更新确认收货图片URL到数据库失败: {e}")
@@ -1652,8 +1644,7 @@ class XianyuAsync:
                                                 logger.info(f"[{msg_time}] 【{self.cookie_id}】确认收货图片上传成功，CDN URL: {cdn_url}")
                                                 # 上传成功后更新数据库中的图片URL
                                                 try:
-                                                    from common.db.compat import db_manager
-                                                    db_manager.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
+                                                    await _ops.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
                                                     logger.info(f"[{msg_time}] 【{self.cookie_id}】已更新确认收货图片URL到数据库")
                                                 except Exception as e:
                                                     logger.warning(f"[{msg_time}] 【{self.cookie_id}】更新确认收货图片URL到数据库失败: {e}")
@@ -1665,8 +1656,8 @@ class XianyuAsync:
                                         # 清理临时文件
                                         try:
                                             os.unlink(tmp_path)
-                                        except:
-                                            pass
+                                        except Exception as e:
+                                            logger.debug(f"异常(已跳过): {e}")
                                 else:
                                     logger.error(f"[{msg_time}] 【{self.cookie_id}】从backend-web获取图片失败，状态码: {response.status}")
                                     return None
@@ -2059,14 +2050,13 @@ class XianyuAsync:
                     # 上传成功后更新卡券图片URL到数据库
                     if card_id:
                         try:
-                            from common.db.compat import db_manager
                             if image_index is not None:
                                 # 多图片模式：更新指定索引的图片URL
-                                db_manager.update_card_image_urls(card_id, image_index, cdn_url)
+                                await _ops.update_card_image_urls(card_id, image_index, cdn_url)
                                 logger.info(f"【{self.cookie_id}】已更新卡券 {card_id} 的第 {image_index+1} 张图片URL为CDN地址")
                             else:
                                 # 单图片模式：更新image_url字段
-                                db_manager.update_card_image_url(card_id, cdn_url)
+                                await _ops.update_card_image_url(card_id, cdn_url)
                                 logger.info(f"【{self.cookie_id}】已更新卡券 {card_id} 的图片URL为CDN地址")
                         except Exception as e:
                             logger.warning(f"【{self.cookie_id}】更新卡券图片URL失败: {e}")
@@ -2074,8 +2064,7 @@ class XianyuAsync:
                     # 上传成功后更新关键词图片URL到数据库
                     if keyword:
                         try:
-                            from common.db.compat import db_manager
-                            db_manager.update_keyword_image_url(self.cookie_id, keyword, cdn_url)
+                            await _ops.update_keyword_image_url(self.cookie_id, keyword, cdn_url)
                             logger.info(f"【{self.cookie_id}】已更新关键词 '{keyword}' 的图片URL为CDN地址")
                         except Exception as e:
                             logger.warning(f"【{self.cookie_id}】更新关键词图片URL失败: {e}")
@@ -2084,10 +2073,9 @@ class XianyuAsync:
                     # default_reply_item_id 不为 None 时才更新（空字符串表示账号级别）
                     if default_reply_item_id is not None:
                         try:
-                            from common.db.compat import db_manager
                             # 空字符串转为None表示账号级别
                             item_id_for_update = default_reply_item_id if default_reply_item_id else None
-                            db_manager.update_default_reply_image_url(self.cookie_id, cdn_url, item_id_for_update)
+                            await _ops.update_default_reply_image_url(self.cookie_id, cdn_url, item_id_for_update)
                             if item_id_for_update:
                                 logger.info(f"【{self.cookie_id}】已更新商品 '{item_id_for_update}' 的默认回复图片URL为CDN地址")
                             else:
@@ -2363,8 +2351,8 @@ class XianyuAsync:
                                 if self._token_fetch_failures >= 100:
                                     logger.error(f"【{self.cookie_id}】Token获取连续失败{self._token_fetch_failures}次，禁用账号")
                                     try:
-                                        from common.db.compat import db_manager
-                                        db_manager.disable_account(self.cookie_id, reason=f"Token获取连续失败{self._token_fetch_failures}次")
+                                        from common.services.account_ops import disable_account as _async_disable
+                                        await _async_disable(self.cookie_id, reason=f"Token获取连续失败{self._token_fetch_failures}次")
                                         logger.warning(f"【{self.cookie_id}】账号已自动禁用")
                                     except Exception as disable_e:
                                         logger.error(f"【{self.cookie_id}】自动禁用账号失败: {disable_e}")
@@ -2526,8 +2514,8 @@ class XianyuAsync:
                             # 频繁短连接断开，禁用账号
                             logger.error(f"【{self.cookie_id}】频繁短连接断开，禁用账号")
                             try:
-                                from common.db.compat import db_manager
-                                db_manager.disable_account(self.cookie_id, reason="未知原因频繁断开连接")
+                                from common.services.account_ops import disable_account as _async_disable
+                                await _async_disable(self.cookie_id, reason="未知原因频繁断开连接")
                                 logger.warning(f"【{self.cookie_id}】账号已禁用，原因: 未知原因频繁断开连接")
                             except Exception as e:
                                 logger.error(f"【{self.cookie_id}】禁用账号失败: {e}")

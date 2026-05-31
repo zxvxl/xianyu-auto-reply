@@ -16,6 +16,7 @@ from app.api import deps
 from common.models.user import User
 from app.services.keyword_service import KeywordService
 from app.services.default_reply_service import DefaultReplyService
+import common.services.account_ops as _ops
 
 router = APIRouter(tags=["消息"])
 
@@ -192,8 +193,7 @@ async def xianyu_reply(
         is_default_reply = False
         
         # 获取账号的所有关键词规则
-        from common.db.compat import db_manager
-        keywords = db_manager.get_keywords_with_type(request.cookie_id)
+        keywords = await _ops.get_keywords_with_type(request.cookie_id)
         
         # 遍历关键词进行匹配
         for keyword_rule in keywords:

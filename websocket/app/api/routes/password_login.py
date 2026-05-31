@@ -274,9 +274,8 @@ def _run_password_login_sync(
             # 实例从未创建（如构造函数前就异常），仅尝试释放全局槽位作为兜底
             try:
                 concurrency_manager.unregister_instance(account_id)
-            except Exception:
-                pass
-
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
         # 清理密码登录处理状态
         try:
             from app.services.captcha.password_login_state import password_login_state
@@ -518,8 +517,8 @@ async def password_login(request: PasswordLoginRequest):
             from app.services.captcha.password_login_state import password_login_state
             if request.account_id:
                 password_login_state.finish_processing(request.account_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"异常(已跳过): {e}")
         return PasswordLoginResponse(
             success=False,
             message=f"登录失败: {str(e)}"

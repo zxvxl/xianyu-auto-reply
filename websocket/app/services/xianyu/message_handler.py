@@ -1,4 +1,4 @@
-﻿"""
+"""
 消息处理模块
 
 负责解析和处理WebSocket接收到的消息
@@ -15,6 +15,7 @@ from loguru import logger
 
 from .utils import safe_str
 from common.utils.xianyu_utils import decrypt
+import common.services.account_ops as _ops
 
 
 class MessageHandler:
@@ -58,8 +59,7 @@ class MessageHandler:
     def _load_message_expire_time(self) -> int:
         """从数据库加载当前账号的相同消息等待时间配置（参照旧框架）"""
         try:
-            from common.db.compat import db_manager
-            expire_time = db_manager.get_cookie_message_expire_time(self.cookie_id)
+            expire_time = await _ops.get_cookie_message_expire_time(self.cookie_id)
             if expire_time is not None and expire_time >= 60:
                 logger.info(f"【{self.cookie_id}】加载消息等待时间配置: {expire_time}秒")
                 return expire_time
@@ -332,9 +332,8 @@ class MessageHandler:
                     item_id = ext_json_dict.get("itemId", "")
                     if item_id:
                         return str(item_id)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    logger.debug(f"异常(已跳过): {e}")
             return ""
         except Exception:
             return ""
@@ -360,9 +359,8 @@ class MessageHandler:
                     item_id = biz_tag_dict.get("itemId", "")
                     if item_id:
                         return str(item_id)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    logger.debug(f"异常(已跳过): {e}")
             # 方法3: 尝试从extJson提取
             ext_json = message_10.get("extJson", "")
             if ext_json:
@@ -371,9 +369,8 @@ class MessageHandler:
                     item_id = ext_json_dict.get("itemId", "")
                     if item_id:
                         return str(item_id)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    logger.debug(f"异常(已跳过): {e}")
             # 方法4: 从卡片消息的JSON内容中提取（用于评价请求等卡片消息）
             message_6 = message_1.get("6", {})
             message_6_3 = message_6.get("3", {})
@@ -387,9 +384,8 @@ class MessageHandler:
                         item_id = jump_url.split("itemId=")[1].split("&")[0]
                         if item_id:
                             return str(item_id)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    logger.debug(f"异常(已跳过): {e}")
             return ""
         except Exception:
             return ""
@@ -412,8 +408,8 @@ class MessageHandler:
             if "5" in message_6_3:
                 card_content = json.loads(message_6_3["5"])
                 return card_content.get("dxCard", {}).get("item", {}).get("main", {}).get("exContent", {}).get("title", "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"异常(已跳过): {e}")
         return None
     
     def is_card_message(self, message: dict) -> bool:
@@ -504,7 +500,7 @@ class MessageHandler:
                 if biz_type not in ('IDLE_SPACE_PRICING',):
                     logger.warning(f"【{self.cookie_id}】解密消息: {json.dumps(parsed_data, ensure_ascii=False)[:1000]}")
                 return parsed_data
-            except:
+            except Exception:
                 # base64解码失败，尝试使用decrypt解密
                 decrypted = json.loads(decrypt(data))
                 # 过滤不需要打印的消息类型

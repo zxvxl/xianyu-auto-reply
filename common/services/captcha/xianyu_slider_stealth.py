@@ -12,6 +12,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from loguru import logger
 
 from common.services.captcha.slider_stealth import PlaywrightSliderService
+from common.services.account_ops import disable_account as _async_disable_account
+import common.services.account_ops as _ops
 
 try:
     from playwright.sync_api import sync_playwright, Page
@@ -373,7 +375,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                 if element and element.is_visible():
                     logger.info(f"【{self.pure_user_id}】✓ 在主页面找到登录表单元素: {selector}")
                     return self.page
-            except:
+            except Exception:
                 continue
         
         # 如果主页面没找到，在iframe中查找
@@ -387,7 +389,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                     # 等待iframe内容加载
                     try:
                         frame.wait_for_selector('#fm-login-id', timeout=3000)
-                    except:
+                    except Exception:
                         pass
                     
                     # 检查是否有登录表单
@@ -397,7 +399,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                             if element and element.is_visible():
                                 logger.info(f"【{self.pure_user_id}】✓ 在Frame {idx} 找到登录表单: {selector}")
                                 return frame
-                        except:
+                        except Exception:
                             continue
             except Exception as e:
                 logger.debug(f"【{self.pure_user_id}】检查Frame {idx}时出错: {e}")
@@ -426,7 +428,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                     logger.info(f"【{self.pure_user_id}】✅ 检测到滑块验证元素: {selector}")
                     has_slider = True
                     break
-            except:
+            except Exception:
                 continue
         
         if has_slider:
@@ -666,9 +668,9 @@ class XianyuSliderStealth(PlaywrightSliderService):
                                 
                                 # 返回 False, None 表示不是二维码/人脸验证（已处理滑块）
                                 return False, None
-                        except:
+                        except Exception:
                             continue
-                except:
+                except Exception:
                     continue
             
             # 检测所有frames中的二维码/人脸验证
@@ -789,7 +791,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                                 if element and element.is_visible():
                                     is_slider = True
                                     break
-                            except:
+                            except Exception:
                                 continue
                         
                         if not is_slider:
@@ -805,7 +807,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                                 logger.debug(f"【{self.pure_user_id}】Frame {idx} 包含滑块验证元素，跳过")
                                 is_slider_frame = True
                                 break
-                        except:
+                        except Exception:
                             continue
                     
                     if is_slider_frame:
@@ -828,7 +830,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                             if not has_slider_keyword:
                                 logger.info(f"【{self.pure_user_id}】✅ 在Frame {idx} 检测到人脸验证")
                                 return True, frame
-                    except:
+                    except Exception:
                         pass
                         
                 except Exception as e:
@@ -867,7 +869,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                             time.sleep(2)
                             other_verify_clicked = True
                             break
-                    except:
+                    except Exception:
                         continue
             except Exception as e:
                 logger.debug(f"【{self.pure_user_id}】查找'其他验证方式'链接时出错: {e}")
@@ -932,7 +934,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
                                                 verify_button.click()
                                                 logger.info(f"【{self.pure_user_id}】已点击'立即验证'按钮")
                                                 break
-                        except:
+                        except Exception:
                             continue
                 except Exception as e:
                     logger.debug(f"【{self.pure_user_id}】方法2查找失败: {e}")
@@ -1216,12 +1218,11 @@ class XianyuSliderStealth(PlaywrightSliderService):
             reason: 禁用原因（会写入 xy_accounts.disable_reason，并在通知详情中展示）
         """
         try:
-            from common.db.compat import db_manager
             from common.services.captcha.concurrency import disabled_account_manager
             
             # 检查系统设置：人脸验证超时是否自动禁用账号
             if "人脸验证超时" in reason:
-                setting_value = db_manager.get_system_setting(
+                setting_value = await _ops.get_system_setting(
                     "account.face_verify_timeout_disable", "true"
                 )
                 if setting_value and setting_value.lower() != "true":
@@ -1234,7 +1235,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
             disabled_account_manager.add(self.pure_user_id)
             
             # 更新数据库
-            success = db_manager.disable_account(self.pure_user_id, reason=reason)
+            success = await _async_disable_account(self.pure_user_id, reason=reason)
             
             if success:
                 logger.info(f"【{self.pure_user_id}】✅ 账号已禁用，原因: {reason}")

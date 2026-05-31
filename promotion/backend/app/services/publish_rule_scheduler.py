@@ -472,7 +472,7 @@ async def _publish_material_to_xianyu(
         是否发布成功
     """
     from common.db.session import async_session_maker
-    from common.services.promotion_publish_execution_service import execute_single_publish
+    from app.services.promotion_publish_execution_service import execute_single_publish
 
     # 解析素材图片
     images = []

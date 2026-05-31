@@ -13,10 +13,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from loguru import logger
 
 from sqlalchemy import select, update, delete, and_, text, func
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from common.db.session import async_session_maker
-from common.core.config import get_settings
+from common.db.session import async_session_maker, create_compat_engine
 from common.models.xy_account import XYAccount
 from common.models.risk_control_log import XYRiskControlLog
 from common.models.account_login_log import XYAccountLoginLog
@@ -37,16 +36,7 @@ _thread_local = threading.local()
 def _get_thread_local_session_maker():
     """获取当前线程的数据库会话工厂（懒加载）"""
     if not hasattr(_thread_local, 'session_maker'):
-        settings = get_settings()
-        engine = create_async_engine(
-            settings.async_database_url,
-            echo=False,
-            pool_pre_ping=False,  # 关闭 pre_ping（asyncmy 新版本不兼容）
-            pool_size=3,
-            max_overflow=5,
-            pool_timeout=30,  # 获取连接超时时间
-            pool_recycle=600,  # 连接回收时间（10分钟），防止MySQL断开
-        )
+        engine = create_compat_engine()
         _thread_local.engine = engine
         _thread_local.session_maker = async_sessionmaker(engine, expire_on_commit=False)
     return _thread_local.session_maker
@@ -100,7 +90,7 @@ class DBManagerCompat:
                         # 清理事件循环
                         try:
                             new_loop.run_until_complete(new_loop.shutdown_asyncgens())
-                        except:
+                        except Exception:
                             pass
                         new_loop.close()
                 except Exception as e:
@@ -752,7 +742,7 @@ class DBManagerCompat:
                 if current_urls:
                     try:
                         urls_list = json.loads(current_urls)
-                    except:
+                    except Exception:
                         urls_list = []
                 else:
                     urls_list = []

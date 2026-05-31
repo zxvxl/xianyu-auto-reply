@@ -114,9 +114,8 @@ class CookieRenewApiService:
             cookie_dict = trans_cookies(cookies_str)
             lgc2_value = cookie_dict.get("havana_lgc2_77", "").strip()
             has_long_login_token = bool(lgc2_value)
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.debug(f"异常(已跳过): {e}")
         if has_long_login_token:
             logger.info(f"{log_prefix} 检测到 havana_lgc2_77，优先使用浏览器续期")
             return await self._renew_browser_first(cookies_str, account_id, log_prefix)
