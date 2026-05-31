@@ -1,4 +1,4 @@
-﻿"""
+"""
 亦凡API处理模块
 负责处理亦凡卡券API相关的所有逻辑，包括：
 - 亦凡API卡券获取
@@ -12,6 +12,7 @@ import time
 import hashlib
 import aiohttp
 from loguru import logger
+import common.services.account_ops as _ops
 
 
 class YifanApiHandler:
@@ -187,13 +188,13 @@ class YifanApiHandler:
                                 try:
                                     from common.db.compat import db_manager
                                     # 更新订单的亦凡订单号和chat_id
-                                    db_manager.update_order_yifan_status(
+                                    await _ops.update_order_yifan_status(
                                         order_id=order_id,
                                         yifan_orderno=order_no,
                                         delivery_status='processing'
                                     )
                                     if chat_id:
-                                        db_manager.update_order_chat_id(order_id, chat_id)
+                                        await _ops.update_order_chat_id(order_id, chat_id)
                                     logger.info(f"已记录亦凡订单信息: order_id={order_id}, yifan_orderno={order_no}")
                                 except Exception as e:
                                     logger.error(f"记录亦凡订单信息失败: {e}")

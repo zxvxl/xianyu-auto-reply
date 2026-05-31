@@ -13,6 +13,7 @@ from loguru import logger
 
 from common.services.captcha.slider_stealth import PlaywrightSliderService
 from common.services.account_ops import disable_account as _async_disable_account
+import common.services.account_ops as _ops
 
 try:
     from playwright.sync_api import sync_playwright, Page
@@ -1222,7 +1223,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
             
             # 检查系统设置：人脸验证超时是否自动禁用账号
             if "人脸验证超时" in reason:
-                setting_value = db_manager.get_system_setting(
+                setting_value = await _ops.get_system_setting(
                     "account.face_verify_timeout_disable", "true"
                 )
                 if setting_value and setting_value.lower() != "true":

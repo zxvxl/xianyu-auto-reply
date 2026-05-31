@@ -14,6 +14,7 @@ import hashlib
 from loguru import logger
 
 from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
+import common.services.account_ops as _ops
 from common.utils.notification_utils import (
     parse_notification_config,
     send_dingtalk_notification,
@@ -75,7 +76,7 @@ class NotificationManager:
 
             # 检查消息过滤规则（跳过消息通知）
             try:
-                filter_keywords = db_manager.get_message_filter_keywords(self.cookie_id, 'skip_notify')
+                filter_keywords = await _ops.get_message_filter_keywords(self.cookie_id, 'skip_notify')
                 if filter_keywords:
                     for keyword in filter_keywords:
                         if keyword and keyword in send_message:

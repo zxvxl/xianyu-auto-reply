@@ -448,3 +448,304 @@ async def add_account_login_log(
     except Exception as e:
         logger.error(f"添加登录日志失败 [{cookie_id}]: {e}")
         return None
+
+
+
+# ============================================================
+# 以下为剩余零散方法的 async 替代(瘦身第七步)
+# ============================================================
+
+async def get_system_setting(key: str, default: str | None = None) -> str | None:
+    """获取系统设置值"""
+    from sqlalchemy import select
+    from common.models.system_setting import SystemSetting
+    try:
+        async with async_session_maker() as session:
+            stmt = select(SystemSetting.value).where(SystemSetting.key == key)
+            result = await session.execute(stmt)
+            val = result.scalar_one_or_none()
+            return val if val is not None else default
+    except Exception as e:
+        logger.error(f"获取系统设置失败 [{key}]: {e}")
+        return default
+
+
+async def get_keywords_with_type(cookie_id: str) -> list[dict]:
+    """获取账号关键词列表(含类型)"""
+    from sqlalchemy import select
+    from common.models.xy_keyword_rule import XYKeywordRule
+    try:
+        async with async_session_maker() as session:
+            account_result = await session.execute(
+                select(XYAccount.id).where(XYAccount.account_id == cookie_id)
+            )
+            account_pk = account_result.scalar_one_or_none()
+            if not account_pk:
+                return []
+            stmt = select(XYKeywordRule).where(
+                XYKeywordRule.account_pk == account_pk,
+                XYKeywordRule.is_active == True,
+            )
+            result = await session.execute(stmt)
+            return [{"id": k.id, "keyword": k.keyword, "reply": k.reply_content,
+                     "type": k.reply_type or "text", "item_id": k.item_id,
+                     "image_url": k.image_url} for k in result.scalars().all()]
+    except Exception as e:
+        logger.error(f"获取关键词失败 [{cookie_id}]: {e}")
+        return []
+
+
+async def get_item_multi_spec_status(cookie_id: str, item_id: str) -> bool:
+    """获取商品是否为多规格"""
+    info = await get_item_info(cookie_id, item_id)
+    return info.get("multi_spec", False) if info else False
+
+
+async def get_cards_by_item_id(item_id: str, spec_name: str = None, spec_value: str = None) -> list[dict]:
+    """通过商品ID获取卡券列表"""
+    from common.services.card_matcher import CardMatcher
+    try:
+        async with async_session_maker() as session:
+            matcher = CardMatcher(session)
+            return await matcher.get_cards_by_item_id(item_id, spec_name, spec_value)
+    except Exception as e:
+        logger.error(f"获取卡券失败 [{item_id}]: {e}")
+        return []
+
+
+async def add_risk_control_log(cookie_id: str, event_type: str, event_description: str,
+                               processing_status: str = "processing", **kwargs) -> int | None:
+    """添加风控日志"""
+    from sqlalchemy import select
+    from common.models.risk_control_log import XYRiskControlLog
+    try:
+        async with async_session_maker() as session:
+            account_result = await session.execute(
+                select(XYAccount.id, XYAccount.owner_id).where(XYAccount.account_id == cookie_id)
+            )
+            row = account_result.first()
+            log = XYRiskControlLog(
+                owner_id=row[1] if row else None,
+                account_pk=row[0] if row else None,
+                account_identifier=cookie_id,
+                event_type=event_type,
+                event_description=event_description,
+                processing_status=processing_status,
+            )
+            session.add(log)
+            await session.commit()
+            await session.refresh(log)
+            return log.id
+    except Exception as e:
+        logger.error(f"添加风控日志失败 [{cookie_id}]: {e}")
+        return None
+
+
+async def get_message_filter_keywords(cookie_id: str, filter_type: str = "skip_reply") -> list[str]:
+    """获取消息过滤关键词列表"""
+    from sqlalchemy import text
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                text("SELECT keyword FROM xy_message_filters WHERE account_id = :aid AND filter_type = :ft AND enabled = 1"),
+                {"aid": cookie_id, "ft": filter_type},
+            )
+            return [row[0] for row in result.fetchall()]
+    except Exception as e:
+        logger.error(f"获取过滤关键词失败 [{cookie_id}]: {e}")
+        return []
+
+
+async def get_cookie_pause_duration(cookie_id: str) -> int:
+    """获取暂停时间(分钟)"""
+    from sqlalchemy import select
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(XYAccount.pause_duration).where(XYAccount.account_id == cookie_id)
+            )
+            val = result.scalar_one_or_none()
+            return val if val is not None else 10
+    except Exception:
+        return 10
+
+
+async def get_cookie_proxy_config(cookie_id: str) -> dict:
+    """获取代理配置"""
+    from sqlalchemy import select
+    default = {"proxy_type": "none", "proxy_host": "", "proxy_port": 0, "proxy_user": "", "proxy_pass": ""}
+    try:
+        async with async_session_maker() as session:
+            stmt = select(
+                XYAccount.proxy_type, XYAccount.proxy_host, XYAccount.proxy_port,
+                XYAccount.proxy_user, XYAccount.proxy_pass,
+            ).where(XYAccount.account_id == cookie_id)
+            result = await session.execute(stmt)
+            row = result.first()
+            if not row:
+                return default
+            return {"proxy_type": row[0] or "none", "proxy_host": row[1] or "",
+                    "proxy_port": row[2] or 0, "proxy_user": row[3] or "", "proxy_pass": row[4] or ""}
+    except Exception:
+        return default
+
+
+async def get_user_setting_by_cookie_id(cookie_id: str, key: str) -> str | None:
+    """通过 cookie_id 获取用户设置"""
+    from sqlalchemy import select
+    from common.models.user_setting import UserSetting
+    try:
+        async with async_session_maker() as session:
+            owner_result = await session.execute(
+                select(XYAccount.owner_id).where(XYAccount.account_id == cookie_id)
+            )
+            owner_id = owner_result.scalar_one_or_none()
+            if not owner_id:
+                return None
+            result = await session.execute(
+                select(UserSetting.value).where(UserSetting.user_id == owner_id, UserSetting.key == key)
+            )
+            return result.scalar_one_or_none()
+    except Exception:
+        return None
+
+
+async def get_auto_confirm(cookie_id: str) -> bool:
+    """获取自动确认发货设置"""
+    from sqlalchemy import select
+    try:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(XYAccount.auto_confirm).where(XYAccount.account_id == cookie_id)
+            )
+            val = result.scalar_one_or_none()
+            return bool(val) if val is not None else False
+    except Exception:
+        return False
+
+
+async def update_order_bargain_status(order_id: str, is_bargain: bool = True) -> bool:
+    """更新订单小刀状态"""
+    from sqlalchemy import update as sa_update
+    from common.models.xy_order import XYOrder
+    try:
+        async with async_session_maker() as session:
+            stmt = sa_update(XYOrder).where(XYOrder.order_no == order_id).values(is_bargain=is_bargain)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新小刀状态失败 [{order_id}]: {e}")
+        return False
+
+
+async def update_order_yifan_status(order_id: str, **kwargs) -> bool:
+    """更新订单亦凡状态"""
+    from sqlalchemy import update as sa_update
+    from common.models.xy_order import XYOrder
+    values = {}
+    if "yifan_order_no" in kwargs:
+        values["yifan_order_no"] = kwargs["yifan_order_no"]
+    if "chat_id" in kwargs:
+        values["chat_id"] = kwargs["chat_id"]
+    if not values:
+        return True
+    try:
+        async with async_session_maker() as session:
+            stmt = sa_update(XYOrder).where(XYOrder.order_no == order_id).values(**values)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新订单亦凡状态失败 [{order_id}]: {e}")
+        return False
+
+
+async def update_order_chat_id(order_id: str, chat_id: str) -> bool:
+    """更新订单 chat_id"""
+    return await update_order_yifan_status(order_id, chat_id=chat_id)
+
+
+async def update_card_image_url(card_id: int, image_url: str) -> bool:
+    """更新卡券图片URL"""
+    from sqlalchemy import update as sa_update
+    from common.models.card import Card
+    try:
+        async with async_session_maker() as session:
+            stmt = sa_update(Card).where(Card.id == card_id).values(image_url=image_url)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新卡券图片失败 [card_id={card_id}]: {e}")
+        return False
+
+
+async def update_card_image_urls(card_id: int, index: int, cdn_url: str) -> bool:
+    """更新卡券多图片列表中指定索引的URL"""
+    import json as _json
+    from sqlalchemy import select
+    from common.models.card import Card
+    try:
+        async with async_session_maker() as session:
+            stmt = select(Card.image_urls).where(Card.id == card_id)
+            result = await session.execute(stmt)
+            current = result.scalar_one_or_none()
+            urls_list = _json.loads(current) if current else []
+            while len(urls_list) <= index:
+                urls_list.append("")
+            urls_list[index] = cdn_url
+            from sqlalchemy import update as sa_update
+            await session.execute(
+                sa_update(Card).where(Card.id == card_id).values(image_urls=_json.dumps(urls_list))
+            )
+            await session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"更新卡券多图片失败 [card_id={card_id}, index={index}]: {e}")
+        return False
+
+
+async def update_keyword_image_url(cookie_id: str, keyword: str, image_url: str) -> bool:
+    """更新关键词图片URL"""
+    from sqlalchemy import select, update as sa_update
+    from common.models.xy_keyword_rule import XYKeywordRule
+    try:
+        async with async_session_maker() as session:
+            account_result = await session.execute(
+                select(XYAccount.id).where(XYAccount.account_id == cookie_id)
+            )
+            account_pk = account_result.scalar_one_or_none()
+            if not account_pk:
+                return False
+            stmt = sa_update(XYKeywordRule).where(
+                XYKeywordRule.account_pk == account_pk, XYKeywordRule.keyword == keyword
+            ).values(image_url=image_url)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新关键词图片失败 [{cookie_id}/{keyword}]: {e}")
+        return False
+
+
+async def update_default_reply_image_url(cookie_id: str, image_url: str, item_id: str = None) -> bool:
+    """更新默认回复图片URL"""
+    from sqlalchemy import update as sa_update
+    from common.models.default_reply import DefaultReply
+    try:
+        async with async_session_maker() as session:
+            if item_id:
+                stmt = sa_update(DefaultReply).where(
+                    DefaultReply.account_id == cookie_id, DefaultReply.item_id == item_id
+                ).values(reply_image=image_url)
+            else:
+                stmt = sa_update(DefaultReply).where(
+                    DefaultReply.account_id == cookie_id, DefaultReply.item_id.is_(None)
+                ).values(reply_image=image_url)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新默认回复图片失败 [{cookie_id}]: {e}")
+        return False

@@ -1454,7 +1454,7 @@ class AutoDeliveryHandler:
                 return None
 
             # 检查商品是否为多规格商品
-            is_multi_spec = db_manager.get_item_multi_spec_status(self.cookie_id, item_id)
+            is_multi_spec = await _ops.get_item_multi_spec_status(self.cookie_id, item_id)
             logger.info(f"商品 {item_id} 多规格状态: {is_multi_spec}")
             
             spec_name = None
@@ -1479,7 +1479,7 @@ class AutoDeliveryHandler:
 
             # 根据商品ID获取卡券（含来源信息：own/dock_l1/dock_l2）
             logger.info(f"根据商品ID获取卡券: {item_id}")
-            cards = db_manager.get_cards_by_item_id(item_id, spec_name, spec_value)
+            cards = await _ops.get_cards_by_item_id(item_id, spec_name, spec_value)
             
             if not cards:
                 self._last_delivery_fail_reason = f"商品 {item_id} 未配置卡券，无法自动发货"

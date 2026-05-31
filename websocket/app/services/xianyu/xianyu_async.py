@@ -93,7 +93,7 @@ class XianyuAsync:
             # 禁用账号
             try:
                 from common.db.compat import db_manager
-                db_manager.disable_account(cookie_id, reason="Cookie缺少必需的unb字段")
+                await _ops.disable_account(cookie_id, reason="Cookie缺少必需的unb字段")
                 logger.warning(f"【{cookie_id}】Cookie缺少unb字段，账号已自动禁用")
             except Exception as e:
                 logger.error(f"【{cookie_id}】禁用账号失败: {e}")
@@ -230,7 +230,7 @@ class XianyuAsync:
         """从数据库加载代理配置"""
         try:
             from common.db.compat import db_manager
-            proxy_config = db_manager.get_cookie_proxy_config(self.cookie_id) or self._default_proxy_config()
+            proxy_config = await _ops.get_cookie_proxy_config(self.cookie_id) or self._default_proxy_config()
             if not isinstance(proxy_config, dict):
                 proxy_config = self._default_proxy_config()
             proxy_type = proxy_config.get('proxy_type', 'none')
@@ -724,7 +724,7 @@ class XianyuAsync:
                     if send_user_id == myid and send_message:
                         try:
                             from common.db.compat import db_manager
-                            redelivery_keyword = db_manager.get_user_setting_by_cookie_id(
+                            redelivery_keyword = await _ops.get_user_setting_by_cookie_id(
                                 self.cookie_id, 'redelivery_trigger_keyword'
                             )
                             if redelivery_keyword:
@@ -1063,7 +1063,7 @@ class XianyuAsync:
         """检查是否启用自动确认发货"""
         try:
             from common.db.compat import db_manager
-            return db_manager.get_auto_confirm(self.cookie_id)
+            return await _ops.get_auto_confirm(self.cookie_id)
         except Exception as e:
             logger.error(f"【{self.cookie_id}】获取自动确认设置失败: {e}")
             return False
@@ -1317,7 +1317,7 @@ class XianyuAsync:
                 if order_id:
                     try:
                         from common.db.compat import db_manager
-                        db_manager.update_order_bargain_status(order_id, True)
+                        await _ops.update_order_bargain_status(order_id, True)
                         logger.info(f"【{self.cookie_id}】订单 {order_id} 检测到小刀，已更新小刀状态")
                     except Exception as e:
                         logger.error(f"【{self.cookie_id}】更新订单小刀状态失败: {e}")
@@ -2062,11 +2062,11 @@ class XianyuAsync:
                             from common.db.compat import db_manager
                             if image_index is not None:
                                 # 多图片模式：更新指定索引的图片URL
-                                db_manager.update_card_image_urls(card_id, image_index, cdn_url)
+                                await _ops.update_card_image_urls(card_id, image_index, cdn_url)
                                 logger.info(f"【{self.cookie_id}】已更新卡券 {card_id} 的第 {image_index+1} 张图片URL为CDN地址")
                             else:
                                 # 单图片模式：更新image_url字段
-                                db_manager.update_card_image_url(card_id, cdn_url)
+                                await _ops.update_card_image_url(card_id, cdn_url)
                                 logger.info(f"【{self.cookie_id}】已更新卡券 {card_id} 的图片URL为CDN地址")
                         except Exception as e:
                             logger.warning(f"【{self.cookie_id}】更新卡券图片URL失败: {e}")
@@ -2075,7 +2075,7 @@ class XianyuAsync:
                     if keyword:
                         try:
                             from common.db.compat import db_manager
-                            db_manager.update_keyword_image_url(self.cookie_id, keyword, cdn_url)
+                            await _ops.update_keyword_image_url(self.cookie_id, keyword, cdn_url)
                             logger.info(f"【{self.cookie_id}】已更新关键词 '{keyword}' 的图片URL为CDN地址")
                         except Exception as e:
                             logger.warning(f"【{self.cookie_id}】更新关键词图片URL失败: {e}")
@@ -2087,7 +2087,7 @@ class XianyuAsync:
                             from common.db.compat import db_manager
                             # 空字符串转为None表示账号级别
                             item_id_for_update = default_reply_item_id if default_reply_item_id else None
-                            db_manager.update_default_reply_image_url(self.cookie_id, cdn_url, item_id_for_update)
+                            await _ops.update_default_reply_image_url(self.cookie_id, cdn_url, item_id_for_update)
                             if item_id_for_update:
                                 logger.info(f"【{self.cookie_id}】已更新商品 '{item_id_for_update}' 的默认回复图片URL为CDN地址")
                             else:

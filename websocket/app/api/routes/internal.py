@@ -1380,7 +1380,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
 
     try:
         # 从数据库获取账号信息
-        account_info = await asyncio.to_thread(db_manager.get_cookie_details, account_id)
+        account_info = await _ops.get_account_details(account_id)
         
         if not account_info:
             logger.error(f"【内部API】无法获取账号信息: {account_id}")

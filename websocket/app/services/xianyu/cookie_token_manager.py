@@ -388,7 +388,7 @@ class CookieTokenManager:
             captcha_start_time = time.time()
             try:
                 from common.db.compat import db_manager
-                log_id = db_manager.add_risk_control_log(
+                log_id = await _ops.add_risk_control_log(
                     cookie_id=self.cookie_id,
                     event_type='slider_captcha',
                     event_description=f'触发场景: Token刷新, URL: {verification_url}',

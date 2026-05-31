@@ -1,4 +1,4 @@
-﻿"""
+"""
 资源管理模块
 
 功能:
@@ -12,6 +12,7 @@
 import asyncio
 import time
 from loguru import logger
+import common.services.account_ops as _ops
 
 
 class AutoReplyPauseManager:
@@ -39,7 +40,7 @@ class AutoReplyPauseManager:
         # 获取账号特定的暂停时间
         try:
             from common.db.compat import db_manager
-            pause_minutes = db_manager.get_cookie_pause_duration(cookie_id)
+            pause_minutes = await _ops.get_cookie_pause_duration(cookie_id)
             logger.debug(f"【{cookie_id}】从数据库获取暂停时间: {pause_minutes}分钟")
         except Exception as e:
             logger.error(f"获取账号 {cookie_id} 暂停时间失败: {e},使用默认10分钟")
