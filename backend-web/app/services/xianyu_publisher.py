@@ -21,7 +21,7 @@ from typing import Optional
 from loguru import logger
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from common.utils.browser_utils import ensure_playwright_browser_path, get_chromium_executable_path
-from common.services.publish_image_service import cleanup_temp_images, download_remote_image
+from app.services.publish_image_service import cleanup_temp_images, download_remote_image
 
 
 class XianyuPublisher:
