@@ -534,9 +534,8 @@ class CookieTokenManager:
                             processing_status='error',
                             error_message='滑块验证模块未安装'
                         )
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 await self.send_token_refresh_notification(
                     f"滑块验证功能不可用，请安装Playwright",
                     "captcha_dependency_missing"
@@ -555,8 +554,8 @@ class CookieTokenManager:
                             processing_status='cancelled',
                             processing_result=f'任务被取消，耗时: {captcha_duration:.2f}秒'
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 raise
 
             except Exception as stealth_e:
@@ -573,9 +572,8 @@ class CookieTokenManager:
                             processing_result=f'滑块验证异常，耗时: {captcha_duration:.2f}秒',
                             error_message=self._safe_str(stealth_e)
                         )
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 return None
 
         except asyncio.CancelledError:
@@ -1141,9 +1139,8 @@ class CookieTokenManager:
                 finally:
                     try:
                         slider.close()
-                    except:
-                        pass
-            
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
             result = await asyncio.to_thread(_do_password_login)
             
             if result:
@@ -1329,9 +1326,8 @@ class CookieTokenManager:
                     try:
                         os.remove(test_image_path)
                         logger.info(f"【{self.cookie_id}】已清理测试图片")
-                    except:
-                        pass
-                        
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
         except Exception as e:
             logger.error(f"【{self.cookie_id}】图片上传API验证异常: {self._safe_str(e)}")
             result['image_api'] = True

@@ -557,10 +557,10 @@ class XianyuAsync:
         """安全地将对象转换为字符串"""
         try:
             return str(obj)
-        except:
+        except Exception:
             try:
                 return repr(obj)
-            except:
+            except Exception:
                 return "未知对象"
     
     async def init(self, ws):
@@ -1108,9 +1108,8 @@ class XianyuAsync:
                                     if order_match:
                                         order_id = order_match.group(1)
                                         
-                        except Exception:
-                            pass
-            
+                        except Exception as e:
+                            logger.debug(f"异常(已跳过): {e}")
             # 方法2: 在整个消息中搜索订单ID模式（参照旧框架）
             if not order_id:
                 message_str = str(message)
@@ -1185,9 +1184,8 @@ class XianyuAsync:
                     chat_id_raw = message.get("2", "")
                     if chat_id_raw:
                         chat_id = str(chat_id_raw).split('@')[0] if '@' in str(chat_id_raw) else str(chat_id_raw)
-            except Exception:
-                pass
-            
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
             # 根据消息类型确定订单状态
             if send_message == '[我已拍下，待付款]':
                 order_status = "pending_payment"
@@ -1665,8 +1663,8 @@ class XianyuAsync:
                                         # 清理临时文件
                                         try:
                                             os.unlink(tmp_path)
-                                        except:
-                                            pass
+                                        except Exception as e:
+                                            logger.debug(f"异常(已跳过): {e}")
                                 else:
                                     logger.error(f"[{msg_time}] 【{self.cookie_id}】从backend-web获取图片失败，状态码: {response.status}")
                                     return None

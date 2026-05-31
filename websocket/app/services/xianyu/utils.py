@@ -16,8 +16,8 @@ def safe_str(e) -> str:
     """
     try:
         return str(e)
-    except:
+    except Exception:
         try:
             return repr(e)
-        except:
+        except Exception:
             return "未知错误"

@@ -1,3 +1,4 @@
+from loguru import logger
 """
 结算服务
 
@@ -110,9 +111,8 @@ class SettlementService:
                 min_amount = Decimal(min_amount_str)
                 if min_amount > Decimal('0') and withdraw_amount < min_amount:
                     return {'success': False, 'message': f'提现金额不能低于最低提现金额 ¥{min_amount}'}
-            except Exception:
-                pass
-
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
         if withdraw_amount > balance_before:
             return {'success': False, 'message': '提现金额不能大于当前余额'}
 

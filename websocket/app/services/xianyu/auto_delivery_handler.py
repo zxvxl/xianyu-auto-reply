@@ -218,8 +218,8 @@ class AutoDeliveryHandler:
                 if latest_ws is not None and latest_ws != current_ws:
                     current_ws = latest_ws
                     logger.info(f"【{self.cookie_id}】检测到新的WebSocket连接，使用新连接重试")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
         return result or {"success": False, "mode": "text", "content": content, "error_message": "重试耗尽仍失败"}
     
     async def _send_image_msg_with_retry(self, websocket, chat_id: str, send_user_id: str,
@@ -257,8 +257,8 @@ class AutoDeliveryHandler:
                 if latest_ws is not None and latest_ws != current_ws:
                     current_ws = latest_ws
                     logger.info(f"【{self.cookie_id}】检测到新的WebSocket连接，使用新连接重试")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"异常(已跳过): {e}")
         return result or {"success": False, "mode": "image", "image_url": image_url, "error_message": "重试耗尽仍失败"}
     
     async def _send_text_with_separator(self, websocket, chat_id: str, send_user_id: str, text: str, msg_time: str = "", user_url: str = "", send_results: list = None) -> bool:
@@ -1704,8 +1704,8 @@ class AutoDeliveryHandler:
                         item_info = db_manager.get_item_info(self.cookie_id, item_id)
                         if item_info:
                             real_item_title = item_info.get('title') or item_info.get('item_title') or ''
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"异常(已跳过): {e}")
                 # 尝试获取卖家昵称（优先使用账号备注）
                 seller_name = ''
                 try:
@@ -1864,9 +1864,8 @@ class AutoDeliveryHandler:
                     fee_type_stmt = select(SystemSetting.value).where(SystemSetting.key == 'distribution.fee_type')
                     fee_type_result = await session.execute(fee_type_stmt)
                     fee_type = fee_type_result.scalar() or 'fixed'
-                except Exception:
-                    pass
-                
+                except Exception as e:
+                    logger.debug(f"异常(已跳过): {e}")
                 fee_stmt = select(SystemSetting.value).where(SystemSetting.key == 'distribution.fee_rate')
                 fee_result = await session.execute(fee_stmt)
                 fee_val = fee_result.scalar()
@@ -2296,7 +2295,7 @@ class AutoDeliveryHandler:
                         content = result.get('data') or result.get('content') or result.get('card') or str(result)
                     else:
                         content = str(result)
-                except:
+                except Exception:
                     content = response_text
 
                 logger.info(f"API调用成功，返回内容长度: {len(content)}")

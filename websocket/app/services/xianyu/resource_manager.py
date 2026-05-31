@@ -139,10 +139,10 @@ class BrowserResourceManager:
         """安全地将异常转换为字符串"""
         try:
             return str(e)
-        except:
+        except Exception:
             try:
                 return repr(e)
-            except:
+            except Exception:
                 return "未知错误"
     
     async def normal_close_resources(self, browser, playwright):

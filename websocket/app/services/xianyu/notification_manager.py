@@ -54,10 +54,10 @@ class NotificationManager:
         """安全地将异常转换为字符串"""
         try:
             return str(e)
-        except:
+        except Exception:
             try:
                 return repr(e)
-            except:
+            except Exception:
                 return "未知错误"
 
     async def send_notification(self, send_user_name: str, send_user_id: str, 
