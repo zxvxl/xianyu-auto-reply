@@ -674,12 +674,10 @@ class XianyuAsync:
         async with self.message_semaphore:
             self.active_message_tasks += 1
             try:
-                await self.handle_message(message_data, websocket)
+                with logger.contextualize(account_id=self.cookie_id):
+                    await self.handle_message(message_data, websocket)
             finally:
                 self.active_message_tasks -= 1
-                # 定期记录活跃任务数（每100个任务记录一次）
-                if self.active_message_tasks % 100 == 0 and self.active_message_tasks > 0:
-                    logger.info(f"【{self.cookie_id}】当前活跃消息处理任务数: {self.active_message_tasks}")
     
     async def handle_message(self, message_data: dict, websocket):
         """
