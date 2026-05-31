@@ -21,6 +21,7 @@ from loguru import logger
 from common.utils.xianyu_utils import (
     trans_cookies, generate_device_id, generate_mid
 )
+from common.services.order_query import get_order_by_id as _async_get_order
 from app.services.xianyu.connection_manager import ConnectionManager, ConnectionState
 from app.services.xianyu.token_manager import TokenManager
 
@@ -733,7 +734,7 @@ class XianyuAsync:
                                         logger.info(f"【{self.cookie_id}】✅ 检测到重发货触发: 关键词='{redelivery_keyword}', 订单号={order_no}")
                                         
                                         # 从数据库查询订单信息
-                                        order_info = db_manager.get_order_by_id(order_no)
+                                        order_info = await _async_get_order(order_no)
                                         if not order_info:
                                             # 订单不在数据库中，先插入基本记录
                                             logger.info(f"【{self.cookie_id}】重发货触发: 订单 {order_no} 不在数据库中，创建基本记录")
@@ -758,7 +759,7 @@ class XianyuAsync:
                                             logger.warning(f"【{self.cookie_id}】重发货触发: API刷新订单 {order_no} 详情失败: {fetch_e}")
                                         
                                         # 重新获取最新的订单信息
-                                        order_info = db_manager.get_order_by_id(order_no)
+                                        order_info = await _async_get_order(order_no)
                                         logger.info(f"【{self.cookie_id}】重发货触发: 订单 {order_no} get_order_by_id 完整返回结果: {order_info}")
                                         
                                         if order_info:

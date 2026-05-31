@@ -12,6 +12,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from common.services.order_query import get_order_by_id as _async_get_order
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -423,7 +424,7 @@ async def deliver_order(request: DeliverOrderRequest):
         logger.info(f"【内部API】收到订单发货请求: order_no={request.order_no}, 发货方式={request.delivery_method}")
         
         # 根据订单号获取账号ID
-        order_info = db_manager.get_order_by_id(request.order_no)
+        order_info = await _async_get_order(request.order_no)
         
         if not order_info:
             raise HTTPException(

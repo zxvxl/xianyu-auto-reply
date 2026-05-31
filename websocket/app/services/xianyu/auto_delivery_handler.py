@@ -22,6 +22,7 @@ from app.services.xianyu.delivery_utils import (
     recursive_replace_params
 )
 from app.services.xianyu.yifan_api_handler import YifanApiHandler
+from common.services.order_query import get_order_by_id as _async_get_order
 
 
 class AutoDeliveryHandler:
@@ -829,8 +830,7 @@ class AutoDeliveryHandler:
 
             # 检查订单金额，金额为0禁止发货
             try:
-                from common.db.compat import db_manager
-                order_check = db_manager.get_order_by_id(order_id)
+                order_check = await _async_get_order(order_id)
                 if order_check:
                     order_amount = order_check.get('amount')
                     if order_amount is not None:
@@ -914,8 +914,7 @@ class AutoDeliveryHandler:
                 # 获取锁后检查数据库订单状态，如果已发货则跳过
                 if redis_lock_acquired and order_id:
                     try:
-                        from common.db.compat import db_manager
-                        existing_order = db_manager.get_order_by_id(order_id)
+                        existing_order = await _async_get_order(order_id)
                         if existing_order and existing_order.get('status') == 'shipped':
                             logger.info(f'[{msg_time}] 【{self.cookie_id}】获取锁后检查发现订单 {order_id} 已发货，跳过处理')
                             return
@@ -1040,7 +1039,7 @@ class AutoDeliveryHandler:
                             elif delivery_content is None and i == 0:
                                 # 第一次调用返回None，可能是订单已发货，检查订单状态
                                 from common.db.compat import db_manager
-                                existing_order = db_manager.get_order_by_id(order_id)
+                                existing_order = await _async_get_order(order_id)
                                 if existing_order and existing_order.get('status') == 'shipped':
                                     logger.info(f"【{self.cookie_id}】订单 {order_id} 已发货，跳过发送卡券")
                                     order_already_shipped = True
@@ -1659,7 +1658,7 @@ class AutoDeliveryHandler:
                     if not cookie_info:
                         logger.warning(f"Cookie ID {self.cookie_id} 不存在于cookies表中，丢弃订单 {order_id}")
                     else:
-                        existing_order = db_manager.get_order_by_id(order_id)
+                        existing_order = await _async_get_order(order_id)
                         if not existing_order:
                             # 插入基本订单信息
                             success = db_manager.insert_or_update_order(
@@ -1859,7 +1858,7 @@ class AutoDeliveryHandler:
                 sale_price_str = '0.00'
                 try:
                     from common.db.compat import db_manager
-                    order_info = db_manager.get_order_by_id(order_id)
+                    order_info = await _async_get_order(order_id)
                     if order_info and order_info.get('amount'):
                         sale_price_str = str(order_info['amount'])
                 except Exception as e:
@@ -2102,7 +2101,7 @@ class AutoDeliveryHandler:
             sale_price = '0.00'
             try:
                 from common.db.compat import db_manager
-                order_info = db_manager.get_order_by_id(order_id)
+                order_info = await _async_get_order(order_id)
                 if order_info and order_info.get('amount'):
                     sale_price = str(order_info['amount'])
             except Exception as e:
@@ -2386,7 +2385,7 @@ class AutoDeliveryHandler:
                 try:
                     from common.db.compat import db_manager
                     # 尝试从数据库获取订单信息
-                    order_info = db_manager.get_order_by_id(order_id)
+                    order_info = await _async_get_order(order_id)
                     if not order_info:
                         # 如果数据库中没有，尝试通过API获取
                         order_detail = await self.fetch_order_detail_info(order_id, item_id, buyer_id)
