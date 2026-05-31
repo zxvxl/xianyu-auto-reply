@@ -152,6 +152,25 @@ async_session_maker = async_sessionmaker(
 )
 
 
+# ============================================================
+# 兼容引擎工厂（供 compat.py 在独立线程中使用）
+# 每个线程需要独立引擎（避免跨线程事件循环冲突）
+# 配置集中在此处，compat.py 只调用不创建
+# ============================================================
+
+def create_compat_engine():
+    """创建线程局部的兼容引擎（小连接池,供同步线程使用）"""
+    return create_async_engine(
+        settings.async_database_url,
+        echo=False,
+        pool_pre_ping=False,
+        pool_size=3,
+        max_overflow=5,
+        pool_timeout=30,
+        pool_recycle=600,
+    )
+
+
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency that yields an AsyncSession."""
     async with async_session_maker() as session:
