@@ -1818,7 +1818,7 @@ class AutoDeliveryHandler:
         from common.models.dock_record import DockRecord
         from common.models.card import Card as CardModel
         from common.models.system_setting import SystemSetting
-        from common.services.settlement_service import SettlementService
+        from common.services.agent_settlement_service import SettlementService
         from decimal import Decimal, InvalidOperation
         from sqlalchemy import select
         
@@ -2042,7 +2042,7 @@ class AutoDeliveryHandler:
         from common.models.dock_record import DockRecord
         from common.models.card import Card as CardModel
         from common.models.system_setting import SystemSetting
-        from common.services.settlement_service import SettlementService
+        from common.services.agent_settlement_service import SettlementService
         from decimal import Decimal, InvalidOperation
         from sqlalchemy import select
         
