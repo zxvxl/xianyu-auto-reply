@@ -164,3 +164,69 @@ async def get_account_details(cookie_id: str) -> dict | None:
     except Exception as e:
         logger.error(f"获取账号详情失败 [{cookie_id}]: {e}")
         return None
+
+
+
+async def get_account_notifications(cookie_id: str) -> list[dict]:
+    """获取账号的通知配置列表
+
+    Args:
+        cookie_id: 账号标识
+
+    Returns:
+        通知配置列表(含渠道信息)
+    """
+    from sqlalchemy import select
+    from common.models.notification_channel import NotificationChannel
+    from common.models.message_notification import MessageNotification
+
+    try:
+        async with async_session_maker() as session:
+            stmt = (
+                select(MessageNotification, NotificationChannel)
+                .join(NotificationChannel, MessageNotification.channel_id == NotificationChannel.id)
+                .where(
+                    MessageNotification.account_identifier == cookie_id,
+                    NotificationChannel.enabled == True,
+                )
+                .order_by(MessageNotification.id)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            notifications = []
+            for notification, channel in rows:
+                notifications.append({
+                    "id": notification.id,
+                    "channel_id": channel.id,
+                    "enabled": notification.enabled,
+                    "channel_name": channel.name,
+                    "channel_type": channel.channel_type,
+                    "channel_config": channel.config_payload,
+                })
+            return notifications
+    except Exception as e:
+        logger.error(f"获取账号通知配置失败 [{cookie_id}]: {e}")
+        return []
+
+
+async def get_confirm_before_send(cookie_id: str) -> bool:
+    """获取发货成功再发卡券开关设置
+
+    Args:
+        cookie_id: 账号标识
+
+    Returns:
+        是否启用
+    """
+    from sqlalchemy import select
+
+    try:
+        async with async_session_maker() as session:
+            stmt = select(XYAccount.confirm_before_send).where(XYAccount.account_id == cookie_id)
+            result = await session.execute(stmt)
+            val = result.scalar_one_or_none()
+            return bool(val) if val is not None else False
+    except Exception as e:
+        logger.error(f"获取 confirm_before_send 失败 [{cookie_id}]: {e}")
+        return False

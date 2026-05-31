@@ -16,6 +16,7 @@ from common.services.order_query import get_order_by_id as _async_get_order
 from common.services.account_ops import disable_account as _async_disable_account
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 from common.services.account_ops import get_account_details as _async_get_account_details
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -582,7 +583,7 @@ async def deliver_order(request: DeliverOrderRequest):
                     logger.warning(f"【内部API】确认发货失败: {error_msg}")
                     # 检查"发货成功再发卡券"开关，如果开启则不发送卡券
                     try:
-                        if db_manager.get_confirm_before_send(account_id):
+                        if await _async_get_confirm_before_send(account_id):
                             logger.warning(f"【内部API】发货成功再发卡券开关已开启，确认发货失败，不发送卡券: {request.order_no}")
                             return {
                                 "success": False,
@@ -622,7 +623,7 @@ async def deliver_order(request: DeliverOrderRequest):
                     logger.warning(f"【内部API】免拼发货失败: {error_msg}")
                     # 检查"发货成功再发卡券"开关，如果开启则不发送卡券
                     try:
-                        if db_manager.get_confirm_before_send(account_id):
+                        if await _async_get_confirm_before_send(account_id):
                             logger.warning(f"【内部API】发货成功再发卡券开关已开启，免拼发货失败，不发送卡券: {request.order_no}")
                             return {
                                 "success": False,

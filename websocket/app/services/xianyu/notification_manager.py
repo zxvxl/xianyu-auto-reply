@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 from loguru import logger
 
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
 from common.utils.notification_utils import (
     parse_notification_config,
     send_dingtalk_notification,
@@ -109,7 +110,7 @@ class NotificationManager:
             logger.info(f"📱 开始发送消息通知 - 账号: {self.cookie_id}, 买家: {send_user_name}")
 
             # 获取账号的通知配置
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
             if not notifications:
                 logger.warning(f"📱 账号 {self.cookie_id} 未配置消息通知，跳过通知发送")
                 return
@@ -136,7 +137,7 @@ class NotificationManager:
             from common.db.compat import db_manager
 
             # 获取账号的通知配置
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
             if not notifications:
                 logger.warning("未配置消息通知，跳过自动发货通知")
                 return
@@ -199,7 +200,7 @@ class NotificationManager:
                 return
 
             from common.db.compat import db_manager
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
 
             if not notifications:
                 logger.warning("未配置消息通知，跳过Token刷新通知")

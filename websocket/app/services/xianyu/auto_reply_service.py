@@ -1,4 +1,4 @@
-﻿"""
+"""
 自动回复服务
 
 功能:
@@ -30,6 +30,7 @@ from common.db.session import async_session_maker
 
 from app.services.xianyu.resource_manager import pause_manager
 from app.services.xianyu.auto_reply_log_service import AutoReplyLogService
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
 
 
 class AutoReplyService:
@@ -872,7 +873,7 @@ class AutoReplyService:
             from common.db.compat import db_manager
             
             # 获取账号的通知配置(使用get_account_notifications方法)
-            notifications = db_manager.get_account_notifications(self.cookie_id)
+            notifications = await _async_get_account_notifications(self.cookie_id)
             if not notifications:
                 logger.debug(f"【{self.cookie_id}】未配置消息通知，跳过通知发送")
                 return

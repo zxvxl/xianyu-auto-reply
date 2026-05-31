@@ -25,6 +25,7 @@ from common.services.order_query import get_order_by_id as _async_get_order
 from app.services.xianyu.connection_manager import ConnectionManager, ConnectionState
 from app.services.xianyu.token_manager import TokenManager
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
 
 # 配置常量
 WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', 'wss://wss-goofish.dingtalk.com/')
@@ -1070,7 +1071,7 @@ class XianyuAsync:
         """检查是否开启发货成功再发卡券开关"""
         try:
             from common.db.compat import db_manager
-            return db_manager.get_confirm_before_send(self.cookie_id)
+            return await _async_get_confirm_before_send(self.cookie_id)
         except Exception as e:
             logger.error(f"【{self.cookie_id}】获取发货成功再发卡券设置失败: {e}")
             return False
