@@ -24,6 +24,7 @@ from common.utils.xianyu_utils import (
 from common.services.order_query import get_order_by_id as _async_get_order
 from app.services.xianyu.connection_manager import ConnectionManager, ConnectionState
 from app.services.xianyu.token_manager import TokenManager
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 
 # 配置常量
 WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', 'wss://wss-goofish.dingtalk.com/')
@@ -775,7 +776,7 @@ class XianyuAsync:
                                                 # 命中禁止发货会错误关闭别人的订单。
                                                 if order_item_id and order_item_id != "未知商品":
                                                     try:
-                                                        item_info = db_manager.get_item_info(self.cookie_id, order_item_id)
+                                                        item_info = await _async_get_item_info(self.cookie_id, order_item_id)
                                                         if not item_info:
                                                             logger.warning(
                                                                 f"【{self.cookie_id}】重发货触发：商品 {order_item_id} 不属于当前账号，"
@@ -1332,7 +1333,7 @@ class XianyuAsync:
                             if item_id and item_id != "未知商品":
                                 try:
                                     from common.db.compat import db_manager
-                                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                                    item_info = await _async_get_item_info(self.cookie_id, item_id)
                                     if not item_info:
                                         logger.warning(
                                             f"【{self.cookie_id}】小刀卡片：商品 {item_id} 不属于当前账号，"

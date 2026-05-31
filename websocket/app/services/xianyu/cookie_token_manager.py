@@ -21,6 +21,7 @@ from common.db.session import async_session_maker
 from common.utils.cookie_refresh import get_account_by_identity, update_account_cookies_in_db
 from common.utils.xianyu_utils import trans_cookies, generate_sign
 from common.services.account_ops import disable_account as _async_disable_account
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 
 
 class CookieTokenManager:
@@ -420,7 +421,7 @@ class CookieTokenManager:
                     if log_id:
                         try:
                             from common.db.compat import db_manager
-                            db_manager.update_risk_control_log(
+                            await _async_update_risk_log(
                                 log_id=log_id,
                                 processing_status='success',
                                 processing_result=f'滑块验证成功，耗时: {captcha_duration:.2f}秒'
@@ -456,7 +457,7 @@ class CookieTokenManager:
                         if log_id:
                             try:
                                 from common.db.compat import db_manager
-                                db_manager.update_risk_control_log(
+                                await _async_update_risk_log(
                                     log_id=log_id,
                                     processing_status='failed',
                                     processing_result=(
@@ -513,7 +514,7 @@ class CookieTokenManager:
                     if log_id:
                         try:
                             from common.db.compat import db_manager
-                            db_manager.update_risk_control_log(
+                            await _async_update_risk_log(
                                 log_id=log_id,
                                 processing_status='failed',
                                 processing_result=f'滑块验证失败，耗时: {captcha_duration:.2f}秒'
@@ -530,7 +531,7 @@ class CookieTokenManager:
                 if log_id:
                     try:
                         from common.db.compat import db_manager
-                        db_manager.update_risk_control_log(
+                        await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='error',
                             error_message='滑块验证模块未安装'
@@ -550,7 +551,7 @@ class CookieTokenManager:
                 if log_id:
                     try:
                         from common.db.compat import db_manager
-                        db_manager.update_risk_control_log(
+                        await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='cancelled',
                             processing_result=f'任务被取消，耗时: {captcha_duration:.2f}秒'
@@ -567,7 +568,7 @@ class CookieTokenManager:
                 if log_id:
                     try:
                         from common.db.compat import db_manager
-                        db_manager.update_risk_control_log(
+                        await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='error',
                             processing_result=f'滑块验证异常，耗时: {captcha_duration:.2f}秒',

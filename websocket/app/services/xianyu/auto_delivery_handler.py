@@ -23,6 +23,7 @@ from app.services.xianyu.delivery_utils import (
 )
 from app.services.xianyu.yifan_api_handler import YifanApiHandler
 from common.services.order_query import get_order_by_id as _async_get_order
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 
 
 class AutoDeliveryHandler:
@@ -804,7 +805,7 @@ class AutoDeliveryHandler:
             if item_id and item_id != "未知商品":
                 try:
                     from common.db.compat import db_manager
-                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                    item_info = await _async_get_item_info(self.cookie_id, item_id)
                     if not item_info:
                         logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 不属于当前账号，跳过自动发货')
                         return
@@ -1724,7 +1725,7 @@ class AutoDeliveryHandler:
                 real_item_title = item_title or ''
                 if not real_item_title or real_item_title == '待获取商品信息':
                     try:
-                        item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                        item_info = await _async_get_item_info(self.cookie_id, item_id)
                         if item_info:
                             real_item_title = item_info.get('title') or item_info.get('item_title') or ''
                     except Exception as e:
@@ -2403,7 +2404,7 @@ class AutoDeliveryHandler:
             if item_id:
                 try:
                     from common.db.compat import db_manager
-                    item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                    item_info = await _async_get_item_info(self.cookie_id, item_id)
                     if item_info:
                         logger.warning(f"从数据库获取到商品信息: {item_id}")
                     else:

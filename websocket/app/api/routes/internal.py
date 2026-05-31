@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from common.services.order_query import get_order_by_id as _async_get_order
 from common.services.account_ops import disable_account as _async_disable_account
+from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -846,7 +847,7 @@ async def deliver_order(request: DeliverOrderRequest):
             'seller_name': '',
         }
         try:
-            _item_info = db_manager.get_item_info(account_id, request.item_id)
+            _item_info = await _async_get_item_info(account_id, request.item_id)
             if _item_info:
                 _order_context['item_title'] = _item_info.get('title') or ''
             _seller_info = db_manager.get_cookie_by_id(account_id)
