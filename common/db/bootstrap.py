@@ -1,9 +1,9 @@
 """
 数据库初始化入口
 
-启动时调用 init_db()：
-  1. 执行 schema.sql 建表（CREATE TABLE IF NOT EXISTS，幂等）
-  2. 执行 seed.py 灌初始化数据（幂等）
+提供：
+  - check_database_connection(): 检查数据库连通性
+  - init_db(): 建表 + 种子数据（幂等）
 """
 from pathlib import Path
 
@@ -11,6 +11,17 @@ from loguru import logger
 from sqlalchemy import text
 
 from common.db.session import async_engine
+
+
+async def check_database_connection() -> bool:
+    """检查数据库连接是否正常（SELECT 1）"""
+    try:
+        async with async_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return True
+    except Exception as e:
+        logger.error(f"数据库连接失败: {e}")
+        return False
 
 _DB_DIR = Path(__file__).parent
 

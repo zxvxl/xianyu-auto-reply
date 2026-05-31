@@ -38,28 +38,6 @@ setup_logging(
 )
 
 
-async def check_database_connection():
-    """
-    检查数据库连接
-    
-    如果连接失败，记录错误并退出服务
-    """
-    try:
-        from common.db.session import async_engine
-        from sqlalchemy import text
-        
-        logger.info("正在检查数据库连接...")
-        async with async_engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        logger.info("数据库连接成功")
-        return True
-    except Exception as e:
-        logger.error(f"数据库连接失败: {str(e)}")
-        logger.error("请检查数据库配置和网络连接")
-        logger.error(f"数据库地址: {settings.mysql_host}:{settings.mysql_port}/{settings.mysql_database}")
-        return False
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -68,9 +46,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"数据库: {settings.mysql_host}:{settings.mysql_port}/{settings.mysql_database}")
     
     # 检查数据库连接
+    from common.db.bootstrap import check_database_connection, init_db
     if not await check_database_connection():
         logger.error("数据库连接失败，服务退出")
         sys.exit(1)
+    
+    # 初始化数据库（建表 + 种子数据，幂等）
+    try:
+        await init_db()
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}")
     
     # 从数据库加载日志保留天数配置
     from common.utils.logging_utils import apply_db_log_retention, run_db_log_retention_sync
