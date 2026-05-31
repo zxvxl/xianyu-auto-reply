@@ -15,6 +15,7 @@ from loguru import logger
 
 from .utils import safe_str
 from common.utils.xianyu_utils import decrypt
+import common.services.account_ops as _ops
 
 
 class MessageHandler:
@@ -59,7 +60,7 @@ class MessageHandler:
         """从数据库加载当前账号的相同消息等待时间配置（参照旧框架）"""
         try:
             from common.db.compat import db_manager
-            expire_time = db_manager.get_cookie_message_expire_time(self.cookie_id)
+            expire_time = await _ops.get_cookie_message_expire_time(self.cookie_id)
             if expire_time is not None and expire_time >= 60:
                 logger.info(f"【{self.cookie_id}】加载消息等待时间配置: {expire_time}秒")
                 return expire_time

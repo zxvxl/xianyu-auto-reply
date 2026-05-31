@@ -230,3 +230,221 @@ async def get_confirm_before_send(cookie_id: str) -> bool:
     except Exception as e:
         logger.error(f"获取 confirm_before_send 失败 [{cookie_id}]: {e}")
         return False
+
+
+
+async def get_cookie_message_expire_time(cookie_id: str) -> int:
+    """获取相同消息等待时间配置"""
+    from sqlalchemy import select
+    try:
+        async with async_session_maker() as session:
+            stmt = select(XYAccount.message_expire_time).where(XYAccount.account_id == cookie_id)
+            result = await session.execute(stmt)
+            val = result.scalar_one_or_none()
+            return val if val is not None else 3600
+    except Exception as e:
+        logger.warning(f"获取 message_expire_time 失败 [{cookie_id}]: {e}")
+        return 3600
+
+
+async def get_item_multi_quantity_delivery_status(cookie_id: str, item_id: str) -> bool:
+    """获取多数量发货状态"""
+    info = await get_item_info(cookie_id, item_id)
+    return info.get("multi_quantity_delivery", False) if info else False
+
+
+async def get_account_pk_by_cookie_id(cookie_id: str) -> int | None:
+    """获取账号主键ID"""
+    from sqlalchemy import select
+    try:
+        async with async_session_maker() as session:
+            stmt = select(XYAccount.id).where(XYAccount.account_id == cookie_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"获取账号主键失败 [{cookie_id}]: {e}")
+        return None
+
+
+async def increment_delivery_count(card_id: int) -> bool:
+    """增加卡券的发货次数"""
+    from sqlalchemy import update as sa_update
+    from common.models.card import Card
+    try:
+        async with async_session_maker() as session:
+            stmt = sa_update(Card).where(Card.id == card_id).values(
+                delivery_count=Card.delivery_count + 1
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"增加发货次数失败 [card_id={card_id}]: {e}")
+        return False
+
+
+async def consume_batch_data(card_id: int) -> str | None:
+    """消费批量数据卡券的一条数据(行锁防并发)
+
+    使用 SELECT FOR UPDATE 确保并发安全。
+    """
+    from sqlalchemy import select
+    from common.models.card import Card
+    try:
+        async with async_session_maker() as session:
+            async with session.begin():
+                stmt = select(Card).where(Card.id == card_id).with_for_update()
+                result = await session.execute(stmt)
+                card = result.scalars().first()
+                if not card or not card.data_content:
+                    return None
+
+                lines = card.data_content.strip().split("\n")
+                if not lines:
+                    return None
+
+                consumed = lines[0].strip()
+                remaining = "\n".join(lines[1:]).strip()
+                card.data_content = remaining if remaining else None
+                await session.flush()
+            return consumed if consumed else None
+    except Exception as e:
+        logger.error(f"消费批量数据失败 [card_id={card_id}]: {e}")
+        return None
+
+
+async def insert_or_update_order(
+    order_id: str,
+    item_id: str = None,
+    buyer_id: str = None,
+    cookie_id: str = None,
+    chat_id: str = None,
+    **kwargs,
+) -> bool:
+    """插入或更新订单(只更新空字段)"""
+    from sqlalchemy import select
+    from common.models.xy_order import XYOrder
+    try:
+        async with async_session_maker() as session:
+            stmt = select(XYOrder).where(XYOrder.order_no == order_id)
+            result = await session.execute(stmt)
+            existing = result.scalars().first()
+
+            if existing:
+                update_values = {}
+                if item_id and not existing.item_id:
+                    update_values["item_id"] = item_id
+                if buyer_id and not existing.buyer_id:
+                    update_values["buyer_id"] = buyer_id
+                if chat_id and not existing.chat_id:
+                    update_values["chat_id"] = chat_id
+                if cookie_id and not existing.account_id:
+                    update_values["account_id"] = cookie_id
+                if update_values:
+                    for k, v in update_values.items():
+                        setattr(existing, k, v)
+                    await session.commit()
+            else:
+                order = XYOrder(
+                    order_no=order_id,
+                    item_id=item_id,
+                    buyer_id=buyer_id,
+                    account_id=cookie_id,
+                    chat_id=chat_id,
+                    status="pending",
+                )
+                session.add(order)
+                await session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"插入/更新订单失败 [{order_id}]: {e}")
+        return False
+
+
+async def update_cookie_account_info(cookie_id: str, **kwargs) -> bool:
+    """更新账号 Cookie 信息"""
+    from sqlalchemy import update as sa_update
+    values = {}
+    if "cookie_value" in kwargs:
+        values["cookie"] = kwargs["cookie_value"]
+    elif "value" in kwargs:
+        values["cookie"] = kwargs["value"]
+    if not values:
+        return False
+    try:
+        async with async_session_maker() as session:
+            stmt = sa_update(XYAccount).where(XYAccount.account_id == cookie_id).values(**values)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新账号信息失败 [{cookie_id}]: {e}")
+        return False
+
+
+async def update_confirm_receipt_image_url(cookie_id: str, image_url: str) -> bool:
+    """更新确认收货消息的图片URL"""
+    from sqlalchemy import update as sa_update
+    from common.models.confirm_receipt_message import ConfirmReceiptMessage
+    try:
+        async with async_session_maker() as session:
+            stmt = sa_update(ConfirmReceiptMessage).where(
+                ConfirmReceiptMessage.account_id == cookie_id
+            ).values(message_image=image_url)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+    except Exception as e:
+        logger.error(f"更新确认收货图片失败 [{cookie_id}]: {e}")
+        return False
+
+
+async def add_account_login_log(
+    cookie_id: str,
+    login_status: str,
+    *,
+    username: str | None = None,
+    trigger_reason: str | None = None,
+    failure_reason: str | None = None,
+    error_message: str | None = None,
+    updated_cookie_names: str | None = None,
+    duration_ms: int | None = None,
+) -> int | None:
+    """添加账号登录日志"""
+    from sqlalchemy import text
+    try:
+        async with async_session_maker() as session:
+            # 获取 account pk + owner_id
+            from sqlalchemy import select
+            stmt = select(XYAccount.id, XYAccount.owner_id).where(XYAccount.account_id == cookie_id)
+            result = await session.execute(stmt)
+            row = result.first()
+            account_pk = row[0] if row else None
+            owner_id = row[1] if row else None
+
+            insert_result = await session.execute(
+                text("""
+                    INSERT INTO xy_account_login_logs
+                    (owner_id, account_id, account_identifier, username, trigger_reason,
+                     login_status, failure_reason, error_message, updated_cookie_names, duration_ms, created_at)
+                    VALUES (:owner_id, :account_id, :identifier, :username, :trigger_reason,
+                            :login_status, :failure_reason, :error_message, :updated_cookie_names, :duration_ms, NOW())
+                """),
+                {
+                    "owner_id": owner_id,
+                    "account_id": account_pk,
+                    "identifier": cookie_id,
+                    "username": username,
+                    "trigger_reason": trigger_reason,
+                    "login_status": login_status,
+                    "failure_reason": failure_reason,
+                    "error_message": (error_message or "")[:500],
+                    "updated_cookie_names": updated_cookie_names,
+                    "duration_ms": duration_ms,
+                },
+            )
+            await session.commit()
+            return insert_result.lastrowid
+    except Exception as e:
+        logger.error(f"添加登录日志失败 [{cookie_id}]: {e}")
+        return None

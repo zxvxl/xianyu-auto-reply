@@ -25,6 +25,7 @@ from app.services.xianyu.yifan_api_handler import YifanApiHandler
 from common.services.order_query import get_order_by_id as _async_get_order
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 from common.services.account_ops import get_account_details as _async_get_account_details
+import common.services.account_ops as _ops
 
 
 class AutoDeliveryHandler:
@@ -950,7 +951,7 @@ class AutoDeliveryHandler:
                     quantity_to_send = 1  # 默认发送1个
 
                     # 检查商品是否开启了多数量发货
-                    multi_quantity_delivery = db_manager.get_item_multi_quantity_delivery_status(self.cookie_id, item_id)
+                    multi_quantity_delivery = await _ops.get_item_multi_quantity_delivery_status(self.cookie_id, item_id)
 
                     if multi_quantity_delivery and order_id:
                         logger.info(f"商品 {item_id} 开启了多数量发货，获取订单详情...")
@@ -1370,7 +1371,7 @@ class AutoDeliveryHandler:
             from common.db.compat import db_manager
             
             # 获取 account_pk
-            account_pk = await db_manager.get_account_pk_by_cookie_id(self.cookie_id)
+            account_pk = await _ops.get_account_pk_by_cookie_id(self.cookie_id)
             if not account_pk:
                 logger.error(f"【{self.cookie_id}】未找到账号信息")
                 return {"error": "未找到账号信息", "order_id": order_id}
@@ -1405,7 +1406,7 @@ class AutoDeliveryHandler:
             from common.db.compat import db_manager
             
             # 获取 account_pk
-            account_pk = await db_manager.get_account_pk_by_cookie_id(self.cookie_id)
+            account_pk = await _ops.get_account_pk_by_cookie_id(self.cookie_id)
             if not account_pk:
                 logger.error(f"【{self.cookie_id}】未找到账号信息")
                 return {"error": "未找到账号信息", "order_id": order_id}
@@ -1663,7 +1664,7 @@ class AutoDeliveryHandler:
                         existing_order = await _async_get_order(order_id)
                         if not existing_order:
                             # 插入基本订单信息
-                            success = db_manager.insert_or_update_order(
+                            success = await _ops.insert_or_update_order(
                                 order_id=order_id,
                                 item_id=item_id,
                                 buyer_id=send_user_id,
@@ -1710,7 +1711,7 @@ class AutoDeliveryHandler:
 
                 elif rule['card_type'] == 'data':
                     # 批量数据类型：获取并消费第一条数据
-                    text_content = db_manager.consume_batch_data(rule['card_id'])
+                    text_content = await _ops.consume_batch_data(rule['card_id'])
 
                 elif rule['card_type'] == 'image':
                     # 图片类型：文字内容为空，只发送图片
@@ -1788,7 +1789,7 @@ class AutoDeliveryHandler:
 
                 if delivery_content:
                     # 增加发货次数统计
-                    db_manager.increment_delivery_count(rule['card_id'])
+                    await _ops.increment_delivery_count(rule['card_id'])
                     logger.info(f"自动发货成功: 卡券ID={rule['card_id']}, 内容长度={len(delivery_content)}")
                     
                     # 如果是对接卡券，创建代理订单记录

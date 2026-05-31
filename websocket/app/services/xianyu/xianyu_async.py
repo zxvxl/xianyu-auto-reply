@@ -26,6 +26,7 @@ from app.services.xianyu.connection_manager import ConnectionManager, Connection
 from app.services.xianyu.token_manager import TokenManager
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
+import common.services.account_ops as _ops
 
 # 配置常量
 WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', 'wss://wss-goofish.dingtalk.com/')
@@ -742,7 +743,7 @@ class XianyuAsync:
                                             logger.info(f"【{self.cookie_id}】重发货触发: 订单 {order_no} 不在数据库中，创建基本记录")
                                             try:
                                                 current_chat_id = parsed_message.get('chat_id', '')
-                                                db_manager.insert_or_update_order(
+                                                await _ops.insert_or_update_order(
                                                     order_id=order_no,
                                                     item_id=item_id,
                                                     buyer_id='',
@@ -1610,7 +1611,7 @@ class XianyuAsync:
                             # 上传成功后更新数据库中的图片URL
                             try:
                                 from common.db.compat import db_manager
-                                db_manager.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
+                                await _ops.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
                                 logger.info(f"[{msg_time}] 【{self.cookie_id}】已更新确认收货图片URL到数据库")
                             except Exception as e:
                                 logger.warning(f"[{msg_time}] 【{self.cookie_id}】更新确认收货图片URL到数据库失败: {e}")
@@ -1652,7 +1653,7 @@ class XianyuAsync:
                                                 # 上传成功后更新数据库中的图片URL
                                                 try:
                                                     from common.db.compat import db_manager
-                                                    db_manager.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
+                                                    await _ops.update_confirm_receipt_image_url(self.cookie_id, cdn_url)
                                                     logger.info(f"[{msg_time}] 【{self.cookie_id}】已更新确认收货图片URL到数据库")
                                                 except Exception as e:
                                                     logger.warning(f"[{msg_time}] 【{self.cookie_id}】更新确认收货图片URL到数据库失败: {e}")

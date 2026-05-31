@@ -22,6 +22,7 @@ from common.utils.cookie_refresh import get_account_by_identity, update_account_
 from common.utils.xianyu_utils import trans_cookies, generate_sign
 from common.services.account_ops import disable_account as _async_disable_account
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+import common.services.account_ops as _ops
 
 
 class CookieTokenManager:
@@ -957,7 +958,7 @@ class CookieTokenManager:
                 final_error_message = error_message
                 if _api_renew_fail_msg and error_message:
                     final_error_message = f"{_api_renew_fail_msg}，{error_message}"
-                db_manager.add_account_login_log(
+                await _ops.add_account_login_log(
                     cookie_id=self.cookie_id,
                     login_status=login_status,
                     username=login_username,

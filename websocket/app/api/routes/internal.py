@@ -17,6 +17,7 @@ from common.services.account_ops import disable_account as _async_disable_accoun
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
 from common.services.account_ops import get_account_details as _async_get_account_details
 from common.services.account_ops import get_account_notifications as _async_get_account_notifications, get_confirm_before_send as _async_get_confirm_before_send
+import common.services.account_ops as _ops
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -771,7 +772,7 @@ async def deliver_order(request: DeliverOrderRequest):
         quantity_degraded_for_disabled_switch = False
         if quantity > 1:
             try:
-                multi_quantity_enabled = db_manager.get_item_multi_quantity_delivery_status(account_id, request.item_id)
+                multi_quantity_enabled = await _ops.get_item_multi_quantity_delivery_status(account_id, request.item_id)
             except Exception as switch_err:
                 # 开关查询异常时按"未启用"处理（保守策略）
                 logger.warning(f"【内部API】查询商品多数量发货开关异常，按未启用处理: {switch_err}")
@@ -877,7 +878,7 @@ async def deliver_order(request: DeliverOrderRequest):
             if card.type == 'text':
                 content = card.text_content
             elif card.type == 'data':
-                content = db_manager.consume_batch_data(request.card_id)
+                content = await _ops.consume_batch_data(request.card_id)
                 if not content:
                     if not raw_contents:
                         logger.error(f"【内部API】批量数据已用完: card_id={request.card_id}")
@@ -998,7 +999,7 @@ async def deliver_order(request: DeliverOrderRequest):
         # ============ 累计发货次数（按实际发出的张数） ============
         for _ in range(actual_count):
             try:
-                db_manager.increment_delivery_count(request.card_id)
+                await _ops.increment_delivery_count(request.card_id)
             except Exception as cnt_err:
                 logger.warning(f"【内部API】累加卡券发货次数失败: {cnt_err}")
 
@@ -1364,7 +1365,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             final_error_message = error_message
             if _api_renew_fail_msg and error_message:
                 final_error_message = f"{_api_renew_fail_msg}，{error_message}"
-            db_manager.add_account_login_log(
+            await _ops.add_account_login_log(
                 cookie_id=account_id,
                 login_status=login_status,
                 username=login_username,
@@ -1405,7 +1406,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
 
                 # 不管续期是否成功，有Cookie更新就先写库
                 if renew_result.updated_cookie_names:
-                    db_manager.update_cookie_account_info(
+                    await _ops.update_cookie_account_info(
                         account_id,
                         cookie_value=renew_result.new_cookies_str
                     )
@@ -1497,7 +1498,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             # 记录密码登录获取到的新cookies
             logger.info(f"【{account_id}】[密码登录获取的新Cookies] {new_cookies_str}")
             
-            success = db_manager.update_cookie_account_info(
+            success = await _ops.update_cookie_account_info(
                 account_id,
                 cookie_value=new_cookies_str
             )
