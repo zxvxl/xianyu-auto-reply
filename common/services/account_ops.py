@@ -286,9 +286,10 @@ async def increment_delivery_count(card_id: int) -> bool:
 async def consume_batch_data(card_id: int) -> str | None:
     """消费批量数据卡券的一条数据(行锁防并发)
 
-    使用 SELECT FOR UPDATE 确保并发安全。
+    使用 SELECT FOR UPDATE 行锁 + 显式事务,防止并发重复派发同一卡密。
+    行为与历史实现对齐:过滤所有空行,清空后写入空字符串。
     """
-    from sqlalchemy import select
+    from sqlalchemy import select, update as sa_update
     from common.models.card import Card
     try:
         async with async_session_maker() as session:
@@ -297,17 +298,23 @@ async def consume_batch_data(card_id: int) -> str | None:
                 result = await session.execute(stmt)
                 card = result.scalars().first()
                 if not card or not card.data_content:
+                    logger.warning(f"卡券 {card_id} 不存在或没有批量数据")
                     return None
 
-                lines = card.data_content.strip().split("\n")
+                # 过滤所有空行(与历史行为一致)
+                lines = [line.strip() for line in card.data_content.split("\n") if line.strip()]
                 if not lines:
+                    logger.warning(f"卡券 {card_id} 批量数据已用完")
                     return None
 
-                consumed = lines[0].strip()
-                remaining = "\n".join(lines[1:]).strip()
-                card.data_content = remaining if remaining else None
-                await session.flush()
-            return consumed if consumed else None
+                consumed = lines[0]
+                remaining = lines[1:]
+                new_content = "\n".join(remaining) if remaining else ""
+                await session.execute(
+                    sa_update(Card).where(Card.id == card_id).values(data_content=new_content)
+                )
+                logger.info(f"卡券 {card_id} 消费数据成功,剩余 {len(remaining)} 条")
+                return consumed
     except Exception as e:
         logger.error(f"消费批量数据失败 [card_id={card_id}]: {e}")
         return None
@@ -321,7 +328,12 @@ async def insert_or_update_order(
     chat_id: str = None,
     **kwargs,
 ) -> bool:
-    """插入或更新订单(只更新空字段)"""
+    """插入或更新订单(已存在则只补空字段;不存在则新建)
+
+    新建时必须能解析出 owner_id(xy_orders.owner_id 为 NOT NULL),
+    解析不到则放弃插入并返回 False(与历史行为保持一致)。
+    """
+    from datetime import datetime
     from sqlalchemy import select
     from common.models.xy_order import XYOrder
     try:
@@ -331,30 +343,42 @@ async def insert_or_update_order(
             existing = result.scalars().first()
 
             if existing:
-                update_values = {}
+                # 只补空字段,不覆盖已有值
                 if item_id and not existing.item_id:
-                    update_values["item_id"] = item_id
+                    existing.item_id = item_id
                 if buyer_id and not existing.buyer_id:
-                    update_values["buyer_id"] = buyer_id
+                    existing.buyer_id = buyer_id
                 if chat_id and not existing.chat_id:
-                    update_values["chat_id"] = chat_id
+                    existing.chat_id = chat_id
                 if cookie_id and not existing.account_id:
-                    update_values["account_id"] = cookie_id
-                if update_values:
-                    for k, v in update_values.items():
-                        setattr(existing, k, v)
-                    await session.commit()
-            else:
-                order = XYOrder(
-                    order_no=order_id,
-                    item_id=item_id,
-                    buyer_id=buyer_id,
-                    account_id=cookie_id,
-                    chat_id=chat_id,
-                    status="pending",
-                )
-                session.add(order)
+                    existing.account_id = cookie_id
                 await session.commit()
+                return True
+
+            # 新建:owner_id 为 NOT NULL,必须先解析
+            owner_id = None
+            if cookie_id:
+                account_result = await session.execute(
+                    select(XYAccount.owner_id).where(XYAccount.account_id == cookie_id)
+                )
+                owner_id = account_result.scalar_one_or_none()
+            if not owner_id:
+                logger.warning(f"无法解析 owner_id,跳过订单插入: {order_id}")
+                return False
+
+            order = XYOrder(
+                order_no=order_id,
+                owner_id=owner_id,
+                item_id=item_id or "",
+                buyer_id=buyer_id or "",
+                chat_id=chat_id or "",
+                account_id=cookie_id,
+                status="processing",
+                created_at=datetime.now(),
+            )
+            session.add(order)
+            await session.commit()
+            logger.info(f"插入新订单成功: {order_id}, item_id={item_id}, buyer_id={buyer_id}")
             return True
     except Exception as e:
         logger.error(f"插入/更新订单失败 [{order_id}]: {e}")
@@ -410,43 +434,33 @@ async def add_account_login_log(
     updated_cookie_names: str | None = None,
     duration_ms: int | None = None,
 ) -> int | None:
-    """添加账号登录日志"""
-    from sqlalchemy import text
+    """添加账号登录日志(使用 ORM 模型,error_message 完整存储)"""
+    from sqlalchemy import select
+    from common.models.account_login_log import XYAccountLoginLog
     try:
         async with async_session_maker() as session:
-            # 获取 account pk + owner_id
-            from sqlalchemy import select
-            stmt = select(XYAccount.id, XYAccount.owner_id).where(XYAccount.account_id == cookie_id)
-            result = await session.execute(stmt)
-            row = result.first()
-            account_pk = row[0] if row else None
-            owner_id = row[1] if row else None
-
-            insert_result = await session.execute(
-                text("""
-                    INSERT INTO xy_account_login_logs
-                    (owner_id, account_id, account_identifier, username, trigger_reason,
-                     login_status, failure_reason, error_message, updated_cookie_names, duration_ms, created_at)
-                    VALUES (:owner_id, :account_id, :identifier, :username, :trigger_reason,
-                            :login_status, :failure_reason, :error_message, :updated_cookie_names, :duration_ms, NOW())
-                """),
-                {
-                    "owner_id": owner_id,
-                    "account_id": account_pk,
-                    "identifier": cookie_id,
-                    "username": username,
-                    "trigger_reason": trigger_reason,
-                    "login_status": login_status,
-                    "failure_reason": failure_reason,
-                    "error_message": (error_message or "")[:500],
-                    "updated_cookie_names": updated_cookie_names,
-                    "duration_ms": duration_ms,
-                },
+            account_result = await session.execute(
+                select(XYAccount.id, XYAccount.owner_id).where(XYAccount.account_id == cookie_id)
             )
+            row = account_result.first()
+            log = XYAccountLoginLog(
+                owner_id=row[1] if row else None,
+                account_pk=row[0] if row else None,
+                account_identifier=cookie_id,
+                username=username,
+                trigger_reason=trigger_reason,
+                login_status=login_status,
+                failure_reason=failure_reason,
+                error_message=error_message,
+                updated_cookie_names=updated_cookie_names,
+                duration_ms=duration_ms,
+            )
+            session.add(log)
             await session.commit()
-            return insert_result.lastrowid
+            await session.refresh(log)
+            return log.id
     except Exception as e:
-        logger.error(f"添加登录日志失败 [{cookie_id}]: {e}")
+        logger.warning(f"添加账号登录日志失败 [{cookie_id}]: {e}")
         return None
 
 
