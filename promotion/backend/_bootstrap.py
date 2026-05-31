@@ -40,7 +40,7 @@ def _setup_windows_event_loop_policy() -> None:
 _setup_windows_event_loop_policy()
 
 from app.core.config import get_settings
-from app.services.database_check_service import check_database_connection, init_fy_tables
+from app.services.database_check_service import check_database_connection
 
 settings = get_settings()
 
@@ -57,8 +57,9 @@ async def lifespan(app: FastAPI):
     db_ok = await check_database_connection()
     if db_ok:
         logger.info("数据库连接正常")
-        # 自检表结构，自动创建缺失的表
-        await init_fy_tables()
+        # 初始化数据库（建表 + 种子数据）
+        from common.db.bootstrap import init_db
+        await init_db()
         # 从数据库加载日志保留天数配置
         from common.utils.logging_utils import apply_db_log_retention, run_db_log_retention_sync
         await apply_db_log_retention()

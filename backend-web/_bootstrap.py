@@ -74,10 +74,10 @@ async def lifespan(app: FastAPI):
         logger.error("数据库连接失败，服务退出")
         sys.exit(1)
     
-    # 初始化数据库（创建表、默认数据等）
+    # 初始化数据库（建表 + 种子数据）
     try:
-        from common.db.init_database import init_database
-        await init_database()
+        from common.db.bootstrap import init_db
+        await init_db()
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
     
