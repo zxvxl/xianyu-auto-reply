@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from loguru import logger
 
 from common.services.captcha.slider_stealth import PlaywrightSliderService
+from common.services.account_ops import disable_account as _async_disable_account
 
 try:
     from playwright.sync_api import sync_playwright, Page
@@ -1234,7 +1235,7 @@ class XianyuSliderStealth(PlaywrightSliderService):
             disabled_account_manager.add(self.pure_user_id)
             
             # 更新数据库
-            success = db_manager.disable_account(self.pure_user_id, reason=reason)
+            success = await _async_disable_account(self.pure_user_id, reason=reason)
             
             if success:
                 logger.info(f"【{self.pure_user_id}】✅ 账号已禁用，原因: {reason}")

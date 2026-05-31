@@ -2360,8 +2360,8 @@ class XianyuAsync:
                                 if self._token_fetch_failures >= 100:
                                     logger.error(f"【{self.cookie_id}】Token获取连续失败{self._token_fetch_failures}次，禁用账号")
                                     try:
-                                        from common.db.compat import db_manager
-                                        db_manager.disable_account(self.cookie_id, reason=f"Token获取连续失败{self._token_fetch_failures}次")
+                                        from common.services.account_ops import disable_account as _async_disable
+                                        await _async_disable(self.cookie_id, reason=f"Token获取连续失败{self._token_fetch_failures}次")
                                         logger.warning(f"【{self.cookie_id}】账号已自动禁用")
                                     except Exception as disable_e:
                                         logger.error(f"【{self.cookie_id}】自动禁用账号失败: {disable_e}")
@@ -2523,8 +2523,8 @@ class XianyuAsync:
                             # 频繁短连接断开，禁用账号
                             logger.error(f"【{self.cookie_id}】频繁短连接断开，禁用账号")
                             try:
-                                from common.db.compat import db_manager
-                                db_manager.disable_account(self.cookie_id, reason="未知原因频繁断开连接")
+                                from common.services.account_ops import disable_account as _async_disable
+                                await _async_disable(self.cookie_id, reason="未知原因频繁断开连接")
                                 logger.warning(f"【{self.cookie_id}】账号已禁用，原因: 未知原因频繁断开连接")
                             except Exception as e:
                                 logger.error(f"【{self.cookie_id}】禁用账号失败: {e}")

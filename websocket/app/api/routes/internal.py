@@ -13,6 +13,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from common.services.order_query import get_order_by_id as _async_get_order
+from common.services.account_ops import disable_account as _async_disable_account
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -1448,7 +1449,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
             logger.warning(f"【内部API】账号 {account_id} 未配置用户名或密码")
             # 自动禁用账号
             try:
-                db_manager.disable_account(account_id, reason=f"{trigger_reason}且未配置密码，自动禁用")
+                await _async_disable_account(account_id, reason=f"{trigger_reason}且未配置密码，自动禁用")
                 logger.warning(f"【内部API】账号 {account_id} 已自动禁用")
             except Exception as disable_e:
                 logger.error(f"【内部API】自动禁用账号失败: {disable_e}")
@@ -1590,7 +1591,7 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
         if is_bad_credentials:
             disable_reason = error_msg if error_msg else "账号密码错误"
             try:
-                db_manager.disable_account(account_id, reason=disable_reason)
+                await _async_disable_account(account_id, reason=disable_reason)
                 logger.warning(f"【内部API】检测到账密错误，账号 {account_id} 已自动禁用，原因: {disable_reason}")
             except Exception as disable_e:
                 logger.error(f"【内部API】禁用账号失败: {disable_e}")

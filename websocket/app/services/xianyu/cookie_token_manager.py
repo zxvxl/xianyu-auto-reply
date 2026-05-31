@@ -20,6 +20,7 @@ from loguru import logger
 from common.db.session import async_session_maker
 from common.utils.cookie_refresh import get_account_by_identity, update_account_cookies_in_db
 from common.utils.xianyu_utils import trans_cookies, generate_sign
+from common.services.account_ops import disable_account as _async_disable_account
 
 
 class CookieTokenManager:
@@ -849,7 +850,7 @@ class CookieTokenManager:
                                 # 自动禁用账号
                                 try:
                                     from common.db.compat import db_manager
-                                    db_manager.disable_account(self.cookie_id, reason="账号已掉线且未配置账号密码，自动禁用")
+                                    await _async_disable_account(self.cookie_id, reason="账号已掉线且未配置账号密码，自动禁用")
                                     logger.warning(f"【{self.cookie_id}】账号已自动禁用")
                                 except Exception as disable_e:
                                     logger.error(f"【{self.cookie_id}】自动禁用账号失败: {self._safe_str(disable_e)}")
@@ -1243,7 +1244,7 @@ class CookieTokenManager:
                 disable_reason = error_msg if error_msg else "账号密码错误"
                 try:
                     from common.db.compat import db_manager
-                    db_manager.disable_account(self.cookie_id, reason=disable_reason)
+                    await _async_disable_account(self.cookie_id, reason=disable_reason)
                     logger.warning(f"【{self.cookie_id}】检测到账密错误，账号已自动禁用，原因: {disable_reason}")
                 except Exception as disable_e:
                     logger.error(f"【{self.cookie_id}】禁用账号失败: {self._safe_str(disable_e)}")
