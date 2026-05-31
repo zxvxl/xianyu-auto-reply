@@ -123,3 +123,44 @@ async def get_item_info(cookie_id: str, item_id: str) -> dict | None:
     except Exception as e:
         logger.error(f"获取商品信息失败 [{cookie_id}/{item_id}]: {e}")
         return None
+
+
+
+async def get_account_details(cookie_id: str) -> dict | None:
+    """根据 account_id 获取账号详情
+
+    Args:
+        cookie_id: 账号标识(account_id)
+
+    Returns:
+        账号信息字典,不存在返回 None
+    """
+    from sqlalchemy import select
+
+    try:
+        async with async_session_maker() as session:
+            stmt = select(XYAccount).where(XYAccount.account_id == cookie_id)
+            result = await session.execute(stmt)
+            account = result.scalars().first()
+            if not account:
+                return None
+            return {
+                "id": account.id,
+                "cookie_id": account.account_id,
+                "cookie_value": account.cookie,
+                "user_id": account.owner_id,
+                "auto_confirm": account.auto_confirm,
+                "remark": account.remark,
+                "pause_duration": account.pause_duration,
+                "username": account.username,
+                "password": account.login_password,
+                "show_browser": account.show_browser,
+                "proxy_type": account.proxy_type,
+                "proxy_host": account.proxy_host,
+                "proxy_port": account.proxy_port,
+                "proxy_user": account.proxy_user,
+                "proxy_pass": account.proxy_pass,
+            }
+    except Exception as e:
+        logger.error(f"获取账号详情失败 [{cookie_id}]: {e}")
+        return None

@@ -24,6 +24,7 @@ from app.services.xianyu.delivery_utils import (
 from app.services.xianyu.yifan_api_handler import YifanApiHandler
 from common.services.order_query import get_order_by_id as _async_get_order
 from common.services.account_ops import update_risk_control_log as _async_update_risk_log, get_item_info as _async_get_item_info
+from common.services.account_ops import get_account_details as _async_get_account_details
 
 
 class AutoDeliveryHandler:
@@ -1655,7 +1656,7 @@ class AutoDeliveryHandler:
                 # 保存订单基本信息到数据库（如果还没有详细信息）
                 try:
                     # 检查cookie_id是否在cookies表中存在
-                    cookie_info = db_manager.get_cookie_by_id(self.cookie_id)
+                    cookie_info = await _async_get_account_details(self.cookie_id)
                     if not cookie_info:
                         logger.warning(f"Cookie ID {self.cookie_id} 不存在于cookies表中，丢弃订单 {order_id}")
                     else:
@@ -1733,7 +1734,7 @@ class AutoDeliveryHandler:
                 # 尝试获取卖家昵称（优先使用账号备注）
                 seller_name = ''
                 try:
-                    seller_info = db_manager.get_cookie_by_id(self.cookie_id)
+                    seller_info = await _async_get_account_details(self.cookie_id)
                     if seller_info:
                         seller_name = seller_info.get('remark') or self.cookie_id or ''
                 except Exception:
@@ -1917,7 +1918,7 @@ class AutoDeliveryHandler:
                 
                 # 获取当前用户ID（分销商/代理）
                 from common.db.compat import db_manager
-                cookie_info = db_manager.get_cookie_by_id(self.cookie_id)
+                cookie_info = await _async_get_account_details(self.cookie_id)
                 dealer_user_id = cookie_info.get('user_id') if cookie_info else 0
                 
                 logger.info(
@@ -2167,7 +2168,7 @@ class AutoDeliveryHandler:
             
             # 获取当前用户ID（分销商）
             from common.db.compat import db_manager
-            cookie_info = db_manager.get_cookie_by_id(self.cookie_id)
+            cookie_info = await _async_get_account_details(self.cookie_id)
             user_id = cookie_info.get('user_id') if cookie_info else 0
             
             # 截断发货内容（避免过长）
