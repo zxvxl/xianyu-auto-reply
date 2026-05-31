@@ -34,11 +34,13 @@ class ApiResponse(BaseModel):
     """统一接口响应模型。
 
     - success: 业务是否成功，固定按用户全局规则统一返回 200 状态码
+    - code: 错误码（可选），前端按此做逻辑判断（参见 common/errors.py）
     - message: 提示信息，前端用于 toast 显示
     - data: 业务数据，可为 dict、list 或 None；为兼容历史调用，允许任意 JSON 结构
     """
 
     success: bool
+    code: str | None = None
     message: str | None = None
     data: Any | None = None
 

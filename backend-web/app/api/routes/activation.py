@@ -289,7 +289,7 @@ async def generate_trial_activation(
             "machine_id": req.machine_id,
         })
         if exists_result.first():
-            return ApiResponse(success=False, message="该机器码已获取过试用激活码，每个机器码只能获取一次")
+            return ApiResponse(success=False, code="CONFLICT", message="该机器码已获取过试用激活码，每个机器码只能获取一次")
 
         expire_ts = _calc_expire_time(_TRIAL_DAYS)
         code = _generate_activation_code(req.machine_id, expire_ts)
@@ -332,7 +332,7 @@ async def generate_renew_activation(
         # 检查24小时内是否已生成过
         limit_result = await _check_daily_limit(db, req.machine_id, "renew")
         if limit_result:
-            return ApiResponse(success=False, message=limit_result["message"])
+            return ApiResponse(success=False, code="LIMIT_EXCEEDED", message=limit_result["message"])
 
         duration_seconds = _RENEW_DAYS * 86400
         code = _generate_renew_code(req.machine_id, duration_seconds)
