@@ -66,7 +66,6 @@ class NotificationManager:
                                send_message: str, item_id: str = None, chat_id: str = None):
         """发送消息通知"""
         try:
-            from common.db.compat import db_manager
 
             # 过滤系统默认消息
             system_messages = ['发来一条消息', '发来一条新消息']
@@ -135,7 +134,6 @@ class NotificationManager:
                                                   item_id: str, error_message: str, chat_id: str = None):
         """发送自动发货失败通知"""
         try:
-            from common.db.compat import db_manager
 
             # 获取账号的通知配置
             notifications = await _async_get_account_notifications(self.cookie_id)
@@ -200,7 +198,6 @@ class NotificationManager:
                 logger.warning(f"Token刷新通知在冷却期内，跳过发送 (还需等待 {time_desc})")
                 return
 
-            from common.db.compat import db_manager
             notifications = await _async_get_account_notifications(self.cookie_id)
 
             if not notifications:

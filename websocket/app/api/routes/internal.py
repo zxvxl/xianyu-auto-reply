@@ -421,7 +421,6 @@ async def deliver_order(request: DeliverOrderRequest):
     try:
         from app.services.xianyu.cookie_manager import get_manager
         from loguru import logger
-        from common.db.compat import db_manager
         from common.db.session import async_session_maker
         from sqlalchemy import select
         from common.models.card import Card
@@ -1342,7 +1341,6 @@ async def _standalone_password_login(account_id: str, trigger_reason: str) -> di
     import asyncio
     import time as _time
     from loguru import logger
-    from common.db.compat import db_manager
     
     logger.info(f"【内部API】开始独立执行密码登录: account_id={account_id}")
     

@@ -39,7 +39,6 @@ class AutoReplyPauseManager:
         """
         # 获取账号特定的暂停时间
         try:
-            from common.db.compat import db_manager
             pause_minutes = await _ops.get_cookie_pause_duration(cookie_id)
             logger.debug(f"【{cookie_id}】从数据库获取暂停时间: {pause_minutes}分钟")
         except Exception as e:

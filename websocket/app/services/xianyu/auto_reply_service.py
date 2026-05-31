@@ -252,7 +252,6 @@ class AutoReplyService:
             return self._message_expire_time
         
         try:
-            from common.db.compat import db_manager
             expire_time = await _ops.get_cookie_message_expire_time(self.cookie_id)
             if expire_time is not None and expire_time >= 0:
                 self._message_expire_time = expire_time
@@ -871,7 +870,6 @@ class AutoReplyService:
             msg_time: 消息时间
         """
         try:
-            from common.db.compat import db_manager
             
             # 获取账号的通知配置(使用get_account_notifications方法)
             notifications = await _async_get_account_notifications(self.cookie_id)

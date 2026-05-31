@@ -387,7 +387,6 @@ class CookieTokenManager:
             log_id = None
             captcha_start_time = time.time()
             try:
-                from common.db.compat import db_manager
                 log_id = await _ops.add_risk_control_log(
                     cookie_id=self.cookie_id,
                     event_type='slider_captcha',
@@ -421,7 +420,6 @@ class CookieTokenManager:
                     captcha_duration = time.time() - captcha_start_time
                     if log_id:
                         try:
-                            from common.db.compat import db_manager
                             await _async_update_risk_log(
                                 log_id=log_id,
                                 processing_status='success',
@@ -457,7 +455,6 @@ class CookieTokenManager:
                         captcha_duration = time.time() - captcha_start_time
                         if log_id:
                             try:
-                                from common.db.compat import db_manager
                                 await _async_update_risk_log(
                                     log_id=log_id,
                                     processing_status='failed',
@@ -514,7 +511,6 @@ class CookieTokenManager:
                     captcha_duration = time.time() - captcha_start_time
                     if log_id:
                         try:
-                            from common.db.compat import db_manager
                             await _async_update_risk_log(
                                 log_id=log_id,
                                 processing_status='failed',
@@ -531,7 +527,6 @@ class CookieTokenManager:
                 # 更新风控日志为异常状态
                 if log_id:
                     try:
-                        from common.db.compat import db_manager
                         await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='error',
@@ -551,7 +546,6 @@ class CookieTokenManager:
                 captcha_duration = time.time() - captcha_start_time
                 if log_id:
                     try:
-                        from common.db.compat import db_manager
                         await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='cancelled',
@@ -568,7 +562,6 @@ class CookieTokenManager:
                 captcha_duration = time.time() - captcha_start_time
                 if log_id:
                     try:
-                        from common.db.compat import db_manager
                         await _async_update_risk_log(
                             log_id=log_id,
                             processing_status='error',
@@ -851,7 +844,6 @@ class CookieTokenManager:
                                 
                                 # 自动禁用账号
                                 try:
-                                    from common.db.compat import db_manager
                                     await _async_disable_account(self.cookie_id, reason="账号已掉线且未配置账号密码，自动禁用")
                                     logger.warning(f"【{self.cookie_id}】账号已自动禁用")
                                 except Exception as disable_e:
@@ -952,7 +944,6 @@ class CookieTokenManager:
         ) -> None:
             """记录一条账号登录日志（写日志失败不影响主流程）。"""
             try:
-                from common.db.compat import db_manager
                 duration_ms = int((time.time() - start_ts) * 1000)
                 # 如果接口续期失败了，在 error_message 前拼接续期失败信息
                 final_error_message = error_message
@@ -972,7 +963,6 @@ class CookieTokenManager:
                 logger.warning(f"【{self.cookie_id}】写入账号登录日志失败: {self._safe_str(log_e)}")
 
         try:
-            from common.db.compat import db_manager
             
             # 检查密码登录冷却期
             current_time = time.time()
@@ -1245,7 +1235,6 @@ class CookieTokenManager:
                 # 直接使用原始错误文案作为禁用原因（不加前缀），与内层 _disable_account_on_timeout 保持一致
                 disable_reason = error_msg if error_msg else "账号密码错误"
                 try:
-                    from common.db.compat import db_manager
                     await _async_disable_account(self.cookie_id, reason=disable_reason)
                     logger.warning(f"【{self.cookie_id}】检测到账密错误，账号已自动禁用，原因: {disable_reason}")
                 except Exception as disable_e:

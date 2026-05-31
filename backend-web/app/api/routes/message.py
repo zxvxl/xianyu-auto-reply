@@ -193,7 +193,6 @@ async def xianyu_reply(
         is_default_reply = False
         
         # 获取账号的所有关键词规则
-        from common.db.compat import db_manager
         keywords = await _ops.get_keywords_with_type(request.cookie_id)
         
         # 遍历关键词进行匹配

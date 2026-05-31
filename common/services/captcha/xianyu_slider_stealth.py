@@ -1218,7 +1218,6 @@ class XianyuSliderStealth(PlaywrightSliderService):
             reason: 禁用原因（会写入 xy_accounts.disable_reason，并在通知详情中展示）
         """
         try:
-            from common.db.compat import db_manager
             from common.services.captcha.concurrency import disabled_account_manager
             
             # 检查系统设置：人脸验证超时是否自动禁用账号

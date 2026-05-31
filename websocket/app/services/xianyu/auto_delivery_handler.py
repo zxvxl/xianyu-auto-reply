@@ -806,7 +806,6 @@ class AutoDeliveryHandler:
             # 检查商品是否属于当前cookies
             if item_id and item_id != "未知商品":
                 try:
-                    from common.db.compat import db_manager
                     item_info = await _async_get_item_info(self.cookie_id, item_id)
                     if not item_info:
                         logger.warning(f'[{msg_time}] 【{self.cookie_id}】❌ 商品 {item_id} 不属于当前账号，跳过自动发货')
@@ -947,7 +946,6 @@ class AutoDeliveryHandler:
                     logger.info(f"【{self.cookie_id}】准备自动发货: item_id={item_id}, item_title={item_title}")
 
                     # 检查是否需要多数量发货
-                    from common.db.compat import db_manager
                     quantity_to_send = 1  # 默认发送1个
 
                     # 检查商品是否开启了多数量发货
@@ -1041,7 +1039,6 @@ class AutoDeliveryHandler:
                                     break
                             elif delivery_content is None and i == 0:
                                 # 第一次调用返回None，可能是订单已发货，检查订单状态
-                                from common.db.compat import db_manager
                                 existing_order = await _async_get_order(order_id)
                                 if existing_order and existing_order.get('status') == 'shipped':
                                     logger.info(f"【{self.cookie_id}】订单 {order_id} 已发货，跳过发送卡券")
@@ -1368,7 +1365,6 @@ class AutoDeliveryHandler:
             logger.warning(f"【{self.cookie_id}】开始确认发货，订单ID: {order_id}")
 
             from common.db.session import async_session_maker
-            from common.db.compat import db_manager
             
             # 获取 account_pk
             account_pk = await _ops.get_account_pk_by_cookie_id(self.cookie_id)
@@ -1403,7 +1399,6 @@ class AutoDeliveryHandler:
             logger.warning(f"【{self.cookie_id}】开始免拼发货，订单ID: {order_id}")
 
             from common.db.session import async_session_maker
-            from common.db.compat import db_manager
             
             # 获取 account_pk
             account_pk = await _ops.get_account_pk_by_cookie_id(self.cookie_id)
@@ -1444,7 +1439,6 @@ class AutoDeliveryHandler:
                 发送给买家作为"补偿"。该参数为 True 时，"发货成功再发卡券"开关会被忽略。
         """
         try:
-            from common.db.compat import db_manager
 
             logger.info(f"开始自动发货检查: 商品ID={item_id}")
 
@@ -1860,7 +1854,6 @@ class AutoDeliveryHandler:
                 # 获取订单售价
                 sale_price_str = '0.00'
                 try:
-                    from common.db.compat import db_manager
                     order_info = await _async_get_order(order_id)
                     if order_info and order_info.get('amount'):
                         sale_price_str = str(order_info['amount'])
@@ -1918,7 +1911,6 @@ class AutoDeliveryHandler:
                 dock_level = dock_record.level
                 
                 # 获取当前用户ID（分销商/代理）
-                from common.db.compat import db_manager
                 cookie_info = await _async_get_account_details(self.cookie_id)
                 dealer_user_id = cookie_info.get('user_id') if cookie_info else 0
                 
@@ -2103,7 +2095,6 @@ class AutoDeliveryHandler:
             # 获取订单售价（需要先获取，百分比手续费依赖售价）
             sale_price = '0.00'
             try:
-                from common.db.compat import db_manager
                 order_info = await _async_get_order(order_id)
                 if order_info and order_info.get('amount'):
                     sale_price = str(order_info['amount'])
@@ -2168,7 +2159,6 @@ class AutoDeliveryHandler:
                 profit = '0.00'
             
             # 获取当前用户ID（分销商）
-            from common.db.compat import db_manager
             cookie_info = await _async_get_account_details(self.cookie_id)
             user_id = cookie_info.get('user_id') if cookie_info else 0
             
@@ -2386,7 +2376,6 @@ class AutoDeliveryHandler:
             # 如果有订单ID，获取订单信息
             if order_id:
                 try:
-                    from common.db.compat import db_manager
                     # 尝试从数据库获取订单信息
                     order_info = await _async_get_order(order_id)
                     if not order_info:
@@ -2405,7 +2394,6 @@ class AutoDeliveryHandler:
             # 如果有商品ID，获取商品信息
             if item_id:
                 try:
-                    from common.db.compat import db_manager
                     item_info = await _async_get_item_info(self.cookie_id, item_id)
                     if item_info:
                         logger.warning(f"从数据库获取到商品信息: {item_id}")

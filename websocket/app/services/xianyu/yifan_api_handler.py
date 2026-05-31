@@ -186,7 +186,6 @@ class YifanApiHandler:
                             # 将亦凡订单号记录到数据库（用于后续回调匹配）
                             if order_id and order_no:
                                 try:
-                                    from common.db.compat import db_manager
                                     # 更新订单的亦凡订单号和chat_id
                                     await _ops.update_order_yifan_status(
                                         order_id=order_id,
